@@ -1,0 +1,149 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1e293b;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: #f8fafc;
+}
+
+.navbar-shell {
+  background-color: #0f172a;
+}
+
+.brand-mark {
+  background-color: #2563eb;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+}
+
+.main-content {
+  padding: 1.25rem;
+}
+
+.login-card {
+  max-width: 400px;
+}
+
+.advisor-student-select {
+  max-width: 400px;
+}
+
+.student-dashboard {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding-bottom: 3rem;
+}
+
+.dashboard-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 5%);
+}
+
+.dashboard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.dashboard-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-caption {
+  font-size: 0.75rem;
+}
+
+.metric-card {
+  min-width: 145px;
+  border-radius: 1rem;
+}
+
+.metric-card p {
+  margin-bottom: 0.25rem;
+}
+
+.metric-card p:last-child {
+  margin-bottom: 0;
+}
+
+.metrics-group {
+  width: auto;
+}
+
+.registration-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+}
+
+.metric-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.table > :not(caption) > * > * {
+  vertical-align: middle;
+}
+
+.transcript-course {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.transcript-course:last-child {
+  border-bottom: 0;
+}
+
+.summary-strip {
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+}
+
+.progress {
+  height: 0.5rem;
+}
+
+.advisor-card {
+  background: linear-gradient(135deg, #eef2ff, #faf5ff);
+}
+
+.add-drop-modal {
+  overflow-y: auto;
+  background: rgb(0 0 0 / 50%);
+}
+
+@media (max-width: 575.98px) {
+  .main-content {
+    padding: 0.75rem;
+  }
+
+  .navbar-shell .container-fluid {
+    align-items: flex-start !important;
+    gap: 1rem;
+  }
+
+  .navbar-shell h1 {
+    font-size: 0.95rem !important;
+  }
+
+  .metric-card {
+    min-width: 0;
+  }
+
+  .metrics-group {
+    width: 100%;
+  }
+}
