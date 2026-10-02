@@ -7,6 +7,8 @@ export default function AdvisorDashboard({ user }) {
   // Section 1 State: Course Offerings
   const [offerings, setOfferings] = useState([]);
   const [courses, setCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [coursesError, setCoursesError] = useState("");
   const [offeringLoading, setOfferingLoading] = useState(true);
   const [showOfferingModal, setShowOfferingModal] = useState(false);
   const [editingOffering, setEditingOffering] = useState(null);
@@ -30,6 +32,7 @@ export default function AdvisorDashboard({ user }) {
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [studentRecord, setStudentRecord] = useState(null);
   const [studentRegistrations, setStudentRegistrations] = useState([]);
+  const [studentCourseRequests, setStudentCourseRequests] = useState([]);
   const [eligibleCourses, setEligibleCourses] = useState([]);
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState("");
@@ -51,7 +54,14 @@ export default function AdvisorDashboard({ user }) {
   };
 
   const loadCourses = () => {
-    apiFetch("/courses").then(setCourses).catch(console.error);
+    setCoursesLoading(true);
+    setCoursesError("");
+    apiFetch("/courses")
+      .then(setCourses)
+      .catch((err) => {
+        setCoursesError(err.message || "Unable to load courses.");
+      })
+      .finally(() => setCoursesLoading(false));
   };
 
   const loadStudents = () => {
@@ -117,6 +127,7 @@ export default function AdvisorDashboard({ user }) {
     if (!studentId) {
       setStudentRecord(null);
       setStudentRegistrations([]);
+      setStudentCourseRequests([]);
       setEligibleCourses([]);
       return;
     }
@@ -124,14 +135,16 @@ export default function AdvisorDashboard({ user }) {
     setRegisterLoading(true);
     try {
       // 1. Fetch student academic history & active registrations
-      const [records, regs, eligible] = await Promise.all([
+      const [records, regs, courseRequests, eligible] = await Promise.all([
         apiFetch(`/students/${studentId}/record`),
         apiFetch(`/students/${studentId}/registrations`),
+        apiFetch(`/course-requests/student/${studentId}`),
         apiFetch(`/students/${studentId}/eligible-courses?term=2026-1`),
       ]);
 
       setStudentRecord(records);
       setStudentRegistrations(regs);
+      setStudentCourseRequests(courseRequests);
       setEligibleCourses(eligible);
     } catch (err) {
       setRegisterError(
@@ -176,6 +189,40 @@ export default function AdvisorDashboard({ user }) {
       loadOfferings();
     } catch (err) {
       setRegisterError(err.message || "Failed to remove course.");
+    }
+  };
+
+  const handleApproveCourseRequest = async (registrationId) => {
+    setRegisterError("");
+    setRegisterSuccess("");
+    try {
+      await apiFetch(`/registrations/${registrationId}/approve`, {
+        method: "PATCH",
+      });
+      setRegisterSuccess("Course request approved and student registered.");
+      await handleSelectStudent(selectedStudentId);
+      loadOfferings();
+    } catch (err) {
+      setRegisterError(err.message || "Failed to approve course request.");
+    }
+  };
+
+  const handleReviewUnfinishedCourseRequest = async (requestId, decision) => {
+    setRegisterError("");
+    setRegisterSuccess("");
+    try {
+      await apiFetch(`/course-requests/${requestId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: decision }),
+      });
+      await handleSelectStudent(selectedStudentId);
+      setRegisterSuccess(
+        decision === "approved"
+          ? "Unfinished course request approved."
+          : "Unfinished course request rejected.",
+      );
+    } catch (err) {
+      setRegisterError(err.message || "Failed to review course request.");
     }
   };
 
@@ -493,6 +540,7 @@ export default function AdvisorDashboard({ user }) {
                         <th className="pb-2">Course</th>
                         <th className="pb-2">Schedule</th>
                         <th className="pb-2">Room</th>
+                        <th className="pb-2">Status</th>
                         <th className="pb-2 text-end">Action</th>
                       </tr>
                     </thead>
@@ -500,7 +548,7 @@ export default function AdvisorDashboard({ user }) {
                       {studentRegistrations.length === 0 ? (
                         <tr>
                           <td
-                            colSpan="4"
+                            colSpan="5"
                             className="text-secondary text-center py-3"
                           >
                             No active course registrations for Term 2026-1.
@@ -522,16 +570,135 @@ export default function AdvisorDashboard({ user }) {
                             <td className="text-secondary py-2">
                               {reg.offeringId?.room}
                             </td>
+                            <td className="py-2 text-capitalize">
+                              {reg.status === "pending" ? (
+                                <span className="badge bg-warning-subtle text-warning-emphasis">
+                                  Pending approval
+                                </span>
+                              ) : (
+                                <span className="badge bg-success-subtle text-success-emphasis">
+                                  Registered
+                                </span>
+                              )}
+                            </td>
                             <td className="text-end py-2">
-                              <button
-                                onClick={() =>
-                                  handleRemoveStudentCourse(reg._id)
-                                }
-                                className="btn btn-outline-danger btn-sm fw-bold py-0.5 px-2"
-                                style={{ fontSize: "11px" }}
+                              {reg.status === "pending" ? (
+                                <button
+                                  onClick={() =>
+                                    handleApproveCourseRequest(reg._id)
+                                  }
+                                  className="btn btn-success btn-sm fw-bold py-0.5 px-2"
+                                  style={{ fontSize: "11px" }}
+                                >
+                                  Approve
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    handleRemoveStudentCourse(reg._id)
+                                  }
+                                  className="btn btn-outline-danger btn-sm fw-bold py-0.5 px-2"
+                                  style={{ fontSize: "11px" }}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {selectedStudentId && (
+              <div className="card border-0 dashboard-card p-4 dashboard-stack mb-4">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <h3 className="fs-6 fw-bold text-dark mb-0">
+                    Unfinished Course Requests
+                  </h3>
+                  <span className="dashboard-caption text-secondary">
+                    Advisor review
+                  </span>
+                </div>
+
+                <div className="table-responsive">
+                  <table className="table table-hover align-middle mb-0 dashboard-caption text-start">
+                    <thead>
+                      <tr
+                        className="border-bottom text-uppercase text-secondary fw-bold"
+                        style={{ fontSize: "10px" }}
+                      >
+                        <th className="pb-2">Course</th>
+                        <th className="pb-2">Term</th>
+                        <th className="pb-2">Status</th>
+                        <th className="pb-2 text-end">Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {studentCourseRequests.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan="4"
+                            className="text-secondary text-center py-3"
+                          >
+                            No unfinished course requests from this student.
+                          </td>
+                        </tr>
+                      ) : (
+                        studentCourseRequests.map((request) => (
+                          <tr key={request._id}>
+                            <td className="fw-bold py-2">
+                              {request.courseId?.code}{" "}
+                              <span className="fw-normal text-secondary">
+                                — {request.courseId?.title}
+                              </span>
+                            </td>
+                            <td className="text-secondary py-2">
+                              {request.term}
+                            </td>
+                            <td className="py-2">
+                              <span
+                                className={`badge ${
+                                  request.status === "pending"
+                                    ? "bg-warning-subtle text-warning-emphasis"
+                                    : request.status === "approved"
+                                      ? "bg-success-subtle text-success-emphasis"
+                                      : "bg-danger-subtle text-danger-emphasis"
+                                }`}
                               >
-                                Remove
-                              </button>
+                                {request.status}
+                              </span>
+                            </td>
+                            <td className="text-end py-2">
+                              {request.status === "pending" && (
+                                <div className="d-inline-flex gap-2">
+                                  <button
+                                    onClick={() =>
+                                      handleReviewUnfinishedCourseRequest(
+                                        request._id,
+                                        "approved",
+                                      )
+                                    }
+                                    className="btn btn-success btn-sm fw-bold"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleReviewUnfinishedCourseRequest(
+                                        request._id,
+                                        "rejected",
+                                      )
+                                    }
+                                    className="btn btn-outline-danger btn-sm fw-bold"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -579,19 +746,26 @@ export default function AdvisorDashboard({ user }) {
                           </td>
                         </tr>
                       ) : (
-                        eligibleCourses.map((off) => {
+                        eligibleCourses.map(({ offering, eligible, reason }) => {
                           const remaining =
-                            (off.seats || 30) - (off.seatsTaken || 0);
+                            (offering.seats || 30) -
+                            (offering.seatsTaken || 0);
                           return (
-                            <tr key={off._id}>
+                            <tr key={offering._id}>
                               <td className="fw-bold py-2">
-                                {off.courseId?.code}{" "}
+                                {offering.courseId?.code}{" "}
                                 <span className="fw-normal text-secondary">
-                                  — {off.courseId?.title}
+                                  — {offering.courseId?.title}
                                 </span>
+                                {!eligible && (
+                                  <span className="d-block fw-normal text-secondary">
+                                    {reason}
+                                  </span>
+                                )}
                               </td>
                               <td className="text-secondary py-2">
-                                {off.day} {off.startTime}-{off.endTime}
+                                {offering.day} {offering.startTime}-
+                                {offering.endTime}
                               </td>
                               <td className="py-2">
                                 <span className="badge bg-light text-dark border">
@@ -601,15 +775,17 @@ export default function AdvisorDashboard({ user }) {
                               <td className="text-end py-2">
                                 <button
                                   onClick={() =>
-                                    handleRegisterStudentToCourse(off._id)
+                                    handleRegisterStudentToCourse(offering._id)
                                   }
                                   className="btn btn-primary btn-sm fw-bold py-0.5 px-2"
                                   style={{ fontSize: "11px" }}
-                                  disabled={remaining <= 0}
+                                  disabled={!eligible || remaining <= 0}
                                 >
                                   {remaining <= 0
                                     ? "Full"
-                                    : "+ Confirm Register"}
+                                    : eligible
+                                      ? "+ Confirm Register"
+                                      : "Unavailable"}
                                 </button>
                               </td>
                             </tr>
@@ -656,13 +832,26 @@ export default function AdvisorDashboard({ user }) {
                       }
                       required
                     >
-                      <option value="">-- Select Course --</option>
+                      <option value="">
+                        {coursesLoading
+                          ? "Loading courses..."
+                          : coursesError
+                            ? "Unable to load courses"
+                            : courses.length === 0
+                              ? "No courses available"
+                              : "-- Select Course --"}
+                      </option>
                       {courses.map((c) => (
                         <option key={c._id} value={c._id}>
                           {c.code} — {c.title} ({c.credits} Credits)
                         </option>
                       ))}
                     </select>
+                    {coursesError && (
+                      <div className="text-danger mt-1" role="alert">
+                        {coursesError}
+                      </div>
+                    )}
                   </div>
 
                   <div className="row g-2">

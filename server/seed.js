@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const dotenv = require("dotenv");
+
 dotenv.config();
 
 const User = require("./models/User");
@@ -8,11 +9,13 @@ const Course = require("./models/Course");
 const Offering = require("./models/Offering");
 const Record = require("./models/Record");
 const Registration = require("./models/Registration");
+const CourseRequest = require("./models/CourseRequest");
 
 const runSeed = async () => {
   try {
     const mongoUri =
       process.env.MONGO_URI || "mongodb://127.0.0.1:27017/csc220_db";
+
     await mongoose.connect(mongoUri);
     console.log("Connected to MongoDB for seeding...");
 
@@ -22,9 +25,10 @@ const runSeed = async () => {
     await Offering.deleteMany({});
     await Record.deleteMany({});
     await Registration.deleteMany({});
+    await CourseRequest.deleteMany({});
     console.log("Cleared existing collections.");
 
-    const passwordHash = await bcrypt.hash("password123", 10);
+    const passwordHash = await bcrypt.hash("123", 10);
 
     // 2. Create Admin Account
     const admin = await User.create({
@@ -35,11 +39,11 @@ const runSeed = async () => {
       active: true,
     });
 
-    // 3. Create Advisor Accounts (including Stamford advisor emails)
+    // 3. Create Advisor Accounts
     const advisors = await User.create([
       {
         name: "WendyLuu",
-        email: "wendylu@stamford.edu",
+        email: "wendy@gmail.com",
         passwordHash,
         role: "advisor",
         active: true,
@@ -53,9 +57,9 @@ const runSeed = async () => {
       },
     ]);
 
-    const defaultAdvisorId = advisors[0]._id; // WendyLuu
+    const defaultAdvisorId = advisors[0]._id;
 
-    // 4. Create 25 Anonymized Student Accounts (Parsed from Excel + Rubric Padding)
+    // 4. Create Student Accounts
     const rawStudents = [
       { name: "Ayla", email: "ayla@gmail.com", studentId: "STU1001" },
       { name: "Nikolai", email: "niko@gmail.com", studentId: "STU1002" },
@@ -82,6 +86,7 @@ const runSeed = async () => {
     ];
 
     const studentUserMap = {};
+
     for (let s of rawStudents) {
       const u = await User.create({
         ...s,
@@ -90,90 +95,39 @@ const runSeed = async () => {
         advisorId: defaultAdvisorId,
         active: true,
       });
+
       studentUserMap[s.email.toLowerCase()] = u._id;
     }
-    console.log(`Created 25 student accounts.`);
 
-    // 5. Create All 55 Courses (with 4 credits as requested)
+    console.log("Created student accounts.");
+
+    // 5. Create standardized courses (4 credits each)
     const rawCourses = [
-      { code: "BSC102", title: "Discrete Mathematics Structures", credits: 4 },
-      { code: "BSC120", title: "Web Development I", credits: 4 },
-      { code: "BSC224", title: "Introduction to Data Science", credits: 4 },
-      { code: "BSC254", title: "Human Computer Interaction", credits: 4 },
+      { code: "ITE451", title: "AWS Cloud Foundations", credits: 4 },
       {
-        code: "BSC321",
-        title: "System Analysis Design And Implementation",
+        code: "SOC221",
+        title: "Business Culture and Current Issues in ASEAN",
         credits: 4,
       },
-      {
-        code: "BSC479",
-        title: "Software Planning and Project Management",
-        credits: 4,
-      },
-      { code: "CSC220", title: "Web Development II", credits: 4 },
-      { code: "CSC222", title: "Java Programming II", credits: 4 },
-      {
-        code: "CSC240",
-        title: "Operating Systems and Maintenance",
-        credits: 4,
-      },
-      { code: "CSC353", title: "Machine Learning Foundation", credits: 4 },
-      { code: "CSC368", title: "Software Testing and Maintenance", credits: 4 },
-      { code: "CSC441", title: "Data Management", credits: 4 },
-      { code: "ECO200", title: "Introduction to Economics", credits: 4 },
-      { code: "ENG101", title: "Introduction to Academic Writing", credits: 4 },
-      { code: "ENG102", title: "Academic Writing", credits: 4 },
+      { code: "MAT101", title: "College Algebra I", credits: 4 },
       { code: "ENG103", title: "College English III", credits: 4 },
-      { code: "GEO101", title: "World Geography", credits: 4 },
-      { code: "HIS101", title: "Thai History and Culture", credits: 4 },
-      {
-        code: "ITE101",
-        title: "Information Technology Fundamentals",
-        credits: 4,
-      },
-      { code: "ITE102", title: "Discrete Mathematics Structure", credits: 4 },
+      { code: "MIS103", title: "Computer Applications", credits: 4 },
       { code: "ITE104", title: "Computer Organization", credits: 4 },
-      { code: "ITE120", title: "Web Development I", credits: 4 },
       {
-        code: "ITE201",
-        title: "IT Service Desk & Incident Management",
+        code: "ITE441",
+        title: "Database Management Systems I",
         credits: 4,
       },
       {
-        code: "ITE210",
-        title: "Social and Professional Issues in IT",
+        code: "ITE442",
+        title: "Database Management Systems II",
         credits: 4,
       },
-      { code: "ITE220", title: "Web Development II", credits: 4 },
-      { code: "ITE221", title: "Programming I", credits: 4 },
-      { code: "ITE222", title: "Programming II", credits: 4 },
-      { code: "ITE224", title: "Introduction to Data Science", credits: 4 },
-      {
-        code: "ITE231",
-        title: "System Administration and Maintenance",
-        credits: 4,
-      },
-      {
-        code: "ITE233",
-        title: "Introduction to Internet of Things",
-        credits: 4,
-      },
-      { code: "ITE240", title: "Operating Systems", credits: 4 },
-      { code: "ITE254", title: "Human Computer Interaction", credits: 4 },
-      {
-        code: "ITE321",
-        title: "System Analysis, Design and Implementation",
-        credits: 4,
-      },
-      {
-        code: "ITE331",
-        title: "Introduction to 3D Modeling and VR",
-        credits: 4,
-      },
-      { code: "ITE343", title: "Mobile Application Development", credits: 4 },
-      { code: "ITE353", title: "Machine Learning Foundation", credits: 4 },
-      { code: "ITE365", title: "Software Quality Management", credits: 4 },
-      { code: "ITE368", title: "Software Testing and Maintenance", credits: 4 },
+      { code: "PSY202", title: "Developmental Psychology", credits: 4 },
+      { code: "ITE102", title: "Discrete Mathematics", credits: 4 },
+      { code: "THA101", title: "Elementary Thai I", credits: 4 },
+      { code: "PSY101", title: "General Psychology", credits: 4 },
+      { code: "ITE254", title: "Human-Computer Interaction", credits: 4 },
       {
         code: "ITE420",
         title: "Information Assurance and Security I",
@@ -184,46 +138,105 @@ const runSeed = async () => {
         title: "Information Assurance and Security II",
         credits: 4,
       },
-      { code: "ITE441", title: "Database Management Systems I", credits: 4 },
-      { code: "ITE442", title: "Database Management Systems II", credits: 4 },
-      { code: "ITE451", title: "AWS Cloud Foundations", credits: 4 },
-      { code: "ITE475", title: "Network I", credits: 4 },
-      { code: "ITE476", title: "Network II", credits: 4 },
-      { code: "ITE477", title: "Windows Server", credits: 4 },
+      {
+        code: "ITE101",
+        title: "Information Technology Fundamentals",
+        credits: 4,
+      },
+      {
+        code: "ITE331",
+        title: "Introduction to 3D Modeling and Virtual Reality",
+        credits: 4,
+      },
+      {
+        code: "ENG101",
+        title: "Introduction to Academic Writing",
+        credits: 4,
+      },
+      { code: "ITE224", title: "Introduction to Data Science", credits: 4 },
+      { code: "ECO200", title: "Introduction to Economics", credits: 4 },
+      {
+        code: "ITE233",
+        title: "Introduction to Internet of Things",
+        credits: 4,
+      },
+      { code: "STA101", title: "Introduction to Statistics", credits: 4 },
       {
         code: "ITE479",
         title: "IT Planning and Project Management",
         credits: 4,
       },
-      { code: "MAT101", title: "College Algebra I", credits: 4 },
+      {
+        code: "ITE201",
+        title: "IT Service Desk & Incident Management",
+        credits: 4,
+      },
+      { code: "ITE223", title: "Java Programming II", credits: 4 },
+      { code: "ITE353", title: "Machine Learning Foundation", credits: 4 },
+      {
+        code: "ITE343",
+        title: "Mobile Application Development",
+        credits: 4,
+      },
+      { code: "ITE475", title: "Network I", credits: 4 },
+      { code: "ITE476", title: "Network II", credits: 4 },
+      { code: "ITE240", title: "Operating Systems", credits: 4 },
+      { code: "ITE221", title: "Programming I", credits: 4 },
+      { code: "ITE222", title: "Programming II", credits: 4 },
       {
         code: "MAT102",
         title: "Quantitative Methods for Business",
         credits: 4,
       },
-      { code: "MIS103", title: "Computer Applications", credits: 4 },
-      { code: "PSY101", title: "General Psychology", credits: 4 },
-      { code: "PSY202", title: "Developmental Psychology", credits: 4 },
       {
-        code: "SOC221",
-        title: "Business Culture and Issues in ASEAN",
+        code: "ITE210",
+        title: "Social and Professional Issues in Information Technology",
         credits: 4,
       },
-      { code: "STA101", title: "Introduction to Statistics", credits: 4 },
-      { code: "THA101", title: "Elementary Thai I", credits: 4 },
+      {
+        code: "ITE478",
+        title: "Software Planning and Project Management",
+        credits: 4,
+      },
+      { code: "ITE365", title: "Software Quality Management", credits: 4 },
+      {
+        code: "ITE368",
+        title: "Software Testing and Maintenance",
+        credits: 4,
+      },
+      {
+        code: "ITE231",
+        title: "System Administration and Maintenance",
+        credits: 4,
+      },
+      {
+        code: "ITE321",
+        title: "System Analysis, Design and Implementation",
+        credits: 4,
+      },
+      { code: "HIS101", title: "Thai History and Culture", credits: 4 },
+      { code: "ITE120", title: "Web Development I", credits: 4 },
+      { code: "ITE220", title: "Web Development II", credits: 4 },
+      { code: "ITE477", title: "Windows Server", credits: 4 },
+      { code: "GEO101", title: "World Geography", credits: 4 },
+
+      // Legacy course retained for historical records
+      { code: "ITE443", title: "Data Management", credits: 4 },
     ];
 
     const courseMap = {};
+
     for (let c of rawCourses) {
       const crs = await Course.create(c);
       courseMap[c.code] = crs._id;
     }
+
     console.log(`Created ${rawCourses.length} courses.`);
 
     // 6. Create Course Offerings for Term 2026-1
     const offerings = await Offering.create([
       {
-        courseId: courseMap["CSC220"],
+        courseId: courseMap["ITE220"],
         term: "2026-1",
         section: 1,
         day: "Monday",
@@ -247,7 +260,7 @@ const runSeed = async () => {
         seats: 2,
         seatsTaken: 2,
         addDropOpen: false,
-      }, // Full section
+      },
       {
         courseId: courseMap["ITE475"],
         term: "2026-1",
@@ -262,7 +275,7 @@ const runSeed = async () => {
         addDropOpen: true,
       },
       {
-        courseId: courseMap["CSC240"],
+        courseId: courseMap["ITE240"],
         term: "2026-1",
         section: 1,
         day: "Thursday",
@@ -288,9 +301,10 @@ const runSeed = async () => {
         addDropOpen: true,
       },
     ]);
-    console.log(`Created ${offerings.length} offerings for Term 2026-1.`);
 
-    // 7. Extract 171 Historical Records from Excel Sheet
+    console.log(`Created $DIL1 offerings for Term 2026-1.`);
+
+    // 7. Historical course records
     const rawRecords = [
       {
         studentEmail: "ayla@gmail.com",
@@ -318,13 +332,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "ayla@gmail.com",
-        courseCode: "BSC224",
+        courseCode: "ITE224",
         term: "Semester 3/2025",
         grade: "B",
       },
       {
         studentEmail: "ayla@gmail.com",
-        courseCode: "CSC368",
+        courseCode: "ITE368",
         term: "Semester 3/2025",
         grade: "A",
       },
@@ -342,7 +356,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "ayla@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -408,7 +422,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "niko@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -450,25 +464,25 @@ const runSeed = async () => {
       },
       {
         studentEmail: "ronaldo@gmail.com",
-        courseCode: "BSC102",
+        courseCode: "ITE102",
         term: "Semester 1/2025",
         grade: "D+",
       },
       {
         studentEmail: "ronaldo@gmail.com",
-        courseCode: "CSC441",
+        courseCode: "ITE443",
         term: "Semester 1/2025",
         grade: "A",
       },
       {
         studentEmail: "ronaldo@gmail.com",
-        courseCode: "CSC222",
+        courseCode: "ITE223",
         term: "Semester 2/2025",
         grade: "A",
       },
       {
         studentEmail: "ronaldo@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 3/2025",
         grade: "C",
       },
@@ -504,7 +518,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "rachaphonb@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 1/2025",
         grade: "C",
       },
@@ -552,13 +566,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "bobb@gmail.com",
-        courseCode: "CSC222",
+        courseCode: "ITE223",
         term: "Semester 1/2024",
         grade: "B",
       },
       {
         studentEmail: "bobb@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 2/2024",
         grade: "B",
       },
@@ -576,7 +590,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "bobb@gmail.com",
-        courseCode: "CSC441",
+        courseCode: "ITE443",
         term: "Semester 2/2025",
         grade: "A",
       },
@@ -588,13 +602,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "bobb@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
       {
         studentEmail: "cucu@gmail.com",
-        courseCode: "ENG102",
+        courseCode: "ENG101",
         term: "Semester 2/2023",
         grade: "A",
       },
@@ -648,13 +662,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "cucu@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
       {
         studentEmail: "demon@gmail.com",
-        courseCode: "ENG102",
+        courseCode: "ENG101",
         term: "Semester 3/2023",
         grade: "A",
       },
@@ -678,13 +692,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "demon@gmail.com",
-        courseCode: "BSC224",
+        courseCode: "ITE224",
         term: "Semester 1/2025",
         grade: "A",
       },
       {
         studentEmail: "demon@gmail.com",
-        courseCode: "CSC368",
+        courseCode: "ITE368",
         term: "Semester 1/2025",
         grade: "A",
       },
@@ -708,7 +722,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "demon@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -762,7 +776,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "kappy@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -816,13 +830,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "zane@gmail.com",
-        courseCode: "CSC222",
+        courseCode: "ITE223",
         term: "Semester 1/2026",
         grade: "A",
       },
       {
         studentEmail: "zane@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 1/2026",
         grade: "C",
       },
@@ -840,7 +854,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "alex@gmail.com",
-        courseCode: "CSC441",
+        courseCode: "ITE443",
         term: "Semester 2/2025",
         grade: "A",
       },
@@ -852,19 +866,19 @@ const runSeed = async () => {
       },
       {
         studentEmail: "alex@gmail.com",
-        courseCode: "CSC353",
+        courseCode: "ITE353",
         term: "Semester 3/2025",
         grade: "A",
       },
       {
         studentEmail: "alex@gmail.com",
-        courseCode: "CSC368",
+        courseCode: "ITE368",
         term: "Semester 3/2025",
         grade: "A",
       },
       {
         studentEmail: "alex@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -924,7 +938,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "bay@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -936,7 +950,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "abc123@gmail.com",
-        courseCode: "ENG102",
+        courseCode: "ENG101",
         term: "Semester 1/2024",
         grade: "A",
       },
@@ -972,7 +986,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "abc123@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -1014,7 +1028,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "irf@mail.ru",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -1026,7 +1040,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "elara@gmail.com",
-        courseCode: "ENG102",
+        courseCode: "ENG101",
         term: "Semester 1/2024",
         grade: "B",
       },
@@ -1074,7 +1088,7 @@ const runSeed = async () => {
       },
       {
         studentEmail: "elara@gmail.com",
-        courseCode: "CSC220",
+        courseCode: "ITE220",
         term: "Semester 1/2026",
         grade: "IP",
       },
@@ -1128,13 +1142,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "peter@gmail.com",
-        courseCode: "CSC222",
+        courseCode: "ITE223",
         term: "Semester 3/2025",
         grade: "A",
       },
       {
         studentEmail: "peter@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 1/2026",
         grade: "C",
       },
@@ -1194,13 +1208,13 @@ const runSeed = async () => {
       },
       {
         studentEmail: "bernardo@gmail.com",
-        courseCode: "CSC222",
+        courseCode: "ITE223",
         term: "Semester 3/2025",
         grade: "A",
       },
       {
         studentEmail: "bernardo@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 1/2026",
         grade: "C",
       },
@@ -1245,7 +1259,7 @@ const runSeed = async () => {
         courseCode: "ITE102",
         term: "Semester 2/2025",
         grade: "F",
-      }, // Retake required flag
+      },
       {
         studentEmail: "zinn@gmail.com",
         courseCode: "ITE441",
@@ -1254,28 +1268,26 @@ const runSeed = async () => {
       },
       {
         studentEmail: "zinn@gmail.com",
-        courseCode: "CSC222",
+        courseCode: "ITE223",
         term: "Semester 3/2025",
         grade: "A",
       },
       {
         studentEmail: "zinn@gmail.com",
-        courseCode: "CSC240",
+        courseCode: "ITE240",
         term: "Semester 1/2026",
         grade: "B",
       },
     ];
-
     let insertedRecordsCount = 0;
     for (let r of rawRecords) {
       const studentObjId = studentUserMap[r.studentEmail.toLowerCase()];
       const courseObjId = courseMap[r.courseCode];
-
       if (studentObjId && courseObjId) {
         let cleanGrade = r.grade.trim().toUpperCase();
-        if (cleanGrade.includes("FONT") || cleanGrade === "A FONT")
+        if (cleanGrade.includes("FONT") || cleanGrade === "A FONT") {
           cleanGrade = "A";
-
+        }
         await Record.create({
           studentId: studentObjId,
           courseId: courseObjId,
@@ -1285,24 +1297,20 @@ const runSeed = async () => {
         insertedRecordsCount++;
       }
     }
-
     console.log(
       `Successfully seeded ${insertedRecordsCount} completed course records linked via MongoDB ObjectIds.`,
     );
-
     console.log("\n======================================================");
     console.log(" SEED COMPLETE — READY FOR DEMO & TESTING");
     console.log("======================================================");
-    console.log(" Test Admin Account:   admin@system.com    / password123");
-    console.log(" Test Advisor Account: wendylu@stamford.edu / password123");
-    console.log(" Test Student Account: niko@gmail.com     / password123");
+    console.log(" Test Admin Account:   admin@system.com / 123");
+    console.log(" Test Advisor Account: wendy@gmail.com / 123");
+    console.log(" Test Student Account: niko@gmail.com / 123");
     console.log("======================================================\n");
-
     process.exit(0);
   } catch (err) {
     console.error("Seed execution failed:", err);
     process.exit(1);
   }
 };
-
 runSeed();

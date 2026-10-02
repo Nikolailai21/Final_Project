@@ -2,12 +2,15 @@ const Registration = require("../models/Registration");
 const Offering = require("../models/Offering");
 const Record = require("../models/Record");
 const Course = require("../models/Course");
+const mongoose = require("mongoose");
+const User = require("../models/User");
 
 // Core Rules Engine Evaluator
 exports.getEligibleCourses = async (req, res) => {
   try {
-    const studentId = req.params.studentId;
-    const term = req.query.term || "2026-1";
+    const studentId = req.params.studentId || req.user.id;
+    const term =
+      req.query.term || (req.user.role === "student" ? "2026-2" : "2026-1");
 
     // 1. Fetch current offerings for the term
     const offerings = await Offering.find({ term }).populate("courseId");
@@ -19,7 +22,7 @@ exports.getEligibleCourses = async (req, res) => {
     const currentRegs = await Registration.find({
       studentId,
       term,
-      status: "registered",
+      status: { $in: ["pending", "registered"] },
     }).populate({
       path: "offeringId",
       populate: { path: "courseId" },
@@ -49,6 +52,19 @@ exports.getEligibleCourses = async (req, res) => {
       } else if (failed) {
         retakeRequired = true;
         reason = "Retake required (Failed in previous term)";
+      }
+
+      const activeCourseRegistration = currentRegs.find(
+        (registration) =>
+          String(registration.offeringId?.courseId?._id) ===
+          String(course._id),
+      );
+      if (activeCourseRegistration) {
+        eligible = false;
+        reason =
+          activeCourseRegistration.status === "pending"
+            ? "Request pending advisor approval"
+            : "Already registered this term";
       }
 
       // Check Rule 4a: Seat Availability
@@ -98,6 +114,152 @@ exports.getEligibleCourses = async (req, res) => {
   }
 };
 
+exports.requestCourse = async (req, res) => {
+  try {
+    const { offeringId } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(offeringId)) {
+      return res.status(400).json({ message: "A valid offering is required" });
+    }
+
+    const offering = await Offering.findById(offeringId).populate("courseId");
+    if (!offering) {
+      return res.status(404).json({ message: "Course offering not found" });
+    }
+    if (!offering.addDropOpen) {
+      return res.status(400).json({ message: "The add/drop window is closed" });
+    }
+    if (offering.seatsTaken >= offering.seats) {
+      return res.status(400).json({ message: "This course section is full" });
+    }
+
+    const alreadyPassed = await Record.exists({
+      studentId: req.user.id,
+      courseId: offering.courseId._id,
+      grade: { $in: ["A", "B+", "B", "C+", "C", "D+", "D"] },
+    });
+    if (alreadyPassed) {
+      return res
+        .status(400)
+        .json({ message: "You have already passed this course" });
+    }
+
+    const offeringIds = await Offering.find({
+      term: offering.term,
+      courseId: offering.courseId._id,
+    }).distinct("_id");
+    const existing = await Registration.findOne({
+      studentId: req.user.id,
+      offeringId: { $in: offeringIds },
+      term: offering.term,
+      status: { $in: ["pending", "registered"] },
+    });
+    if (existing) {
+      return res
+        .status(409)
+        .json({
+          message: "You already requested or registered for this course",
+        });
+    }
+
+    const registration = await Registration.create({
+      studentId: req.user.id,
+      offeringId: offering._id,
+      term: offering.term,
+      status: "pending",
+    });
+    res.status(201).json(
+      await Registration.findById(registration._id).populate({
+        path: "offeringId",
+        populate: { path: "courseId" },
+      }),
+    );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.approveCourseRequest = async (req, res) => {
+  try {
+    const registration = await Registration.findOne({
+      _id: req.params.id,
+      status: "pending",
+    }).populate("offeringId");
+    if (!registration) {
+      return res.status(404).json({ message: "Pending request not found" });
+    }
+
+    const assignedStudent = await User.exists({
+      _id: registration.studentId,
+      advisorId: req.user.id,
+      role: "student",
+    });
+    if (!assignedStudent) {
+      return res.status(403).json({
+        message: "You can only approve requests for your assigned students",
+      });
+    }
+
+    const courseOfferingIds = await Offering.find({
+      term: registration.term,
+      courseId: registration.offeringId.courseId,
+    }).distinct("_id");
+    const alreadyRegistered = await Registration.exists({
+      studentId: registration.studentId,
+      term: registration.term,
+      status: "registered",
+      offeringId: { $in: courseOfferingIds },
+    });
+    if (alreadyRegistered) {
+      return res
+        .status(409)
+        .json({ message: "Student is already registered for this course" });
+    }
+
+    const offering = await Offering.findOneAndUpdate(
+      {
+        _id: registration.offeringId._id,
+        $expr: { $lt: ["$seatsTaken", "$seats"] },
+      },
+      { $inc: { seatsTaken: 1 } },
+      { new: true },
+    );
+    if (!offering) {
+      return res
+        .status(400)
+        .json({ message: "This course section is full or unavailable" });
+    }
+
+    try {
+      const approved = await Registration.findOneAndUpdate(
+        { _id: registration._id, status: "pending" },
+        { $set: { status: "registered" } },
+        { new: true },
+      ).populate({
+        path: "offeringId",
+        populate: { path: "courseId" },
+      });
+      if (!approved) {
+        await Offering.updateOne(
+          { _id: offering._id, seatsTaken: { $gt: 0 } },
+          { $inc: { seatsTaken: -1 } },
+        );
+        return res
+          .status(409)
+          .json({ message: "Request has already been reviewed" });
+      }
+      return res.json(approved);
+    } catch (err) {
+      await Offering.updateOne(
+        { _id: offering._id, seatsTaken: { $gt: 0 } },
+        { $inc: { seatsTaken: -1 } },
+      );
+      throw err;
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.registerCourse = async (req, res) => {
   try {
     const { studentId, offeringId, term } = req.body;
@@ -132,12 +294,13 @@ exports.dropCourse = async (req, res) => {
     if (!registration)
       return res.status(404).json({ message: "Registration not found" });
 
+    const wasRegistered = registration.status === "registered";
     registration.status = "dropped";
     await registration.save();
 
     // Decrement seat count
     const offering = await Offering.findById(registration.offeringId);
-    if (offering && offering.seatsTaken > 0) {
+    if (wasRegistered && offering && offering.seatsTaken > 0) {
       offering.seatsTaken -= 1;
       await offering.save();
     }

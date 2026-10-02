@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import AddDropModal from "../components/AddDropModal";
 
+const NEXT_TERM = "2026-2";
+
 // Stamford Grade to Grade Points mapping
 const GRADE_POINTS = {
   A: 4.0,
@@ -49,17 +51,88 @@ const getTermSortKey = (termStr) => {
   return 0;
 };
 
+const getUnfinishedCourses = (courses, records) => {
+  const coursesInHistory = new Set(
+    records
+      .map((record) => String(record.courseId?._id || record.courseId))
+      .filter(Boolean),
+  );
+
+  return courses
+    .filter((course) => !coursesInHistory.has(String(course._id)))
+    .sort((a, b) => a.code.localeCompare(b.code));
+};
+
 export default function StudentDashboard({ user }) {
   const [registrations, setRegistrations] = useState([]);
   const [records, setRecords] = useState([]);
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [recordsError, setRecordsError] = useState("");
+  const [courses, setCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [coursesError, setCoursesError] = useState("");
   const [selectedCourse, setSelectedCourse] = useState(null);
+  const [registrationsError, setRegistrationsError] = useState("");
+  const [eligibleCourses, setEligibleCourses] = useState([]);
+  const [eligibleCoursesLoading, setEligibleCoursesLoading] = useState(true);
+  const [eligibleCoursesError, setEligibleCoursesError] = useState("");
+  const [courseRequests, setCourseRequests] = useState([]);
+  const [courseRequestsLoading, setCourseRequestsLoading] = useState(true);
+  const [courseRequestsError, setCourseRequestsError] = useState("");
+  const [courseRequestMessage, setCourseRequestMessage] = useState("");
+  const [requestingCourseId, setRequestingCourseId] = useState("");
+  const [requestingOfferingId, setRequestingOfferingId] = useState("");
 
-  useEffect(() => {
+  // Search state for unfinished courses
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const loadRegistrations = () =>
     apiFetch("/students/me/registrations")
       .then(setRegistrations)
-      .catch(console.error);
+      .catch((err) => setRegistrationsError(err.message));
+
+  const loadEligibleCourses = (showLoading = false) => {
+    if (showLoading) setEligibleCoursesLoading(true);
+    return apiFetch("/students/me/eligible-courses")
+      .then((courses) => {
+        setEligibleCourses(courses);
+        setEligibleCoursesError("");
+      })
+      .catch((err) => setEligibleCoursesError(err.message))
+      .finally(() => setEligibleCoursesLoading(false));
+  };
+
+  const loadCourseRequests = (showLoading = false) => {
+    if (showLoading) setCourseRequestsLoading(true);
+    return apiFetch("/course-requests/me")
+      .then((requests) => {
+        setCourseRequests(requests);
+        setCourseRequestsError("");
+      })
+      .catch((err) => setCourseRequestsError(err.message))
+      .finally(() => setCourseRequestsLoading(false));
+  };
+
+  useEffect(() => {
+    loadRegistrations();
+    apiFetch("/courses")
+      .then(setCourses)
+      .catch((err) => setCoursesError(err.message || "Unable to load courses."))
+      .finally(() => setCoursesLoading(false));
+    apiFetch("/students/me/eligible-courses")
+      .then((courses) => {
+        setEligibleCourses(courses);
+        setEligibleCoursesError("");
+      })
+      .catch((err) => setEligibleCoursesError(err.message))
+      .finally(() => setEligibleCoursesLoading(false));
+    apiFetch("/course-requests/me")
+      .then((requests) => {
+        setCourseRequests(requests);
+        setCourseRequestsError("");
+      })
+      .catch((err) => setCourseRequestsError(err.message))
+      .finally(() => setCourseRequestsLoading(false));
 
     apiFetch("/students/me/record")
       .then(setRecords)
@@ -68,6 +141,66 @@ export default function StudentDashboard({ user }) {
       )
       .finally(() => setRecordsLoading(false));
   }, []);
+
+  const handleRequestUnfinishedCourse = async (courseId) => {
+    setCourseRequestMessage("");
+    setRequestingCourseId(courseId);
+    try {
+      await apiFetch("/course-requests", {
+        method: "POST",
+        body: JSON.stringify({ courseId, term: NEXT_TERM }),
+      });
+      setCourseRequestMessage(
+        "Course request sent. Your advisor will review it.",
+      );
+      await loadCourseRequests(true);
+    } catch (err) {
+      setCourseRequestMessage(err.message || "Unable to request this course.");
+    } finally {
+      setRequestingCourseId("");
+    }
+  };
+
+  const handleRequestCourse = async (offeringId) => {
+    setCourseRequestMessage("");
+    setRequestingOfferingId(offeringId);
+    try {
+      await apiFetch("/registrations/request", {
+        method: "POST",
+        body: JSON.stringify({ offeringId }),
+      });
+      setCourseRequestMessage(
+        "Course request sent. Your advisor will review it.",
+      );
+      await Promise.all([loadRegistrations(), loadEligibleCourses(true)]);
+    } catch (err) {
+      setCourseRequestMessage(err.message || "Unable to request this course.");
+    } finally {
+      setRequestingOfferingId("");
+    }
+  };
+
+  const unfinishedCourses = getUnfinishedCourses(courses, records);
+
+  // Filtered courses based on search query
+  const filteredUnfinishedCourses = unfinishedCourses.filter(
+    (c) =>
+      c.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.title.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
+
+  const activeCourseRequestIds = new Set(
+    courseRequests
+      .filter(
+        (request) =>
+          request.term === NEXT_TERM &&
+          ["pending", "approved"].includes(request.status),
+      )
+      .map((request) => String(request.courseId?._id)),
+  );
+  const termCourseRequests = courseRequests.filter(
+    (request) => request.term === NEXT_TERM,
+  );
 
   const processTranscript = (rawRecords) => {
     const transferCourses = [];
@@ -122,12 +255,10 @@ export default function StudentDashboard({ user }) {
       courses.forEach((c) => {
         thisRegister += c.credits;
 
-        // Earned credits: Passed grades and TR
         if (c.grade in GRADE_POINTS && c.grade !== "F") {
           thisEarn += c.credits;
         }
 
-        // Credits Attempted (CA) & GP: Count A, B+, B, C+, C, D+, D, F. EXCLUDE W, IP, TR!
         if (c.grade in GRADE_POINTS) {
           thisCA += c.credits;
           thisGP += c.gp;
@@ -225,21 +356,24 @@ export default function StudentDashboard({ user }) {
         </div>
       </div>
 
-      {/* --- Section 1: Active Registered Courses --- */}
+      {/* --- STANDALONE CARD: My Registered Courses --- */}
       <div className="card border-0 dashboard-card p-4 dashboard-stack">
         <div className="d-flex justify-content-between align-items-center">
           <div>
             <h3 className="fs-6 fw-bold text-dark">
-              Active Learning Programs (Term 2026-1)
+              My Registration Courses for next Term (Term {NEXT_TERM})
             </h3>
-            <p className="dashboard-caption text-secondary">
-              Currently enrolled course sections and status
+            <p className="dashboard-caption text-secondary mb-0">
+              Currently registered class sections and Add/Drop request options
             </p>
           </div>
-          <span className="dashboard-caption fw-bold text-success-emphasis bg-success-subtle border border-success-subtle px-3 py-1 rounded-pill">
-            Active Term
-          </span>
         </div>
+
+        {registrationsError && (
+          <div className="alert alert-danger mb-0" role="alert">
+            {registrationsError}
+          </div>
+        )}
 
         <div className="table-responsive">
           <table className="table table-hover align-middle text-start mb-0">
@@ -247,64 +381,58 @@ export default function StudentDashboard({ user }) {
               <tr className="dashboard-caption fw-bold text-secondary text-uppercase">
                 <th className="pb-3">Course</th>
                 <th className="pb-3">Schedule</th>
-                <th className="pb-3">Room</th>
-                <th className="pb-3">Instructor</th>
-                <th className="pb-3">Add/Drop</th>
-                <th className="pb-3 text-center">Action</th>
+                <th className="pb-3 text-center">Status</th>
+                <th className="pb-3 text-end">Action</th>
               </tr>
             </thead>
             <tbody className="dashboard-caption">
               {registrations.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan="6"
-                    className="py-4 text-center text-secondary fw-medium"
-                  >
-                    No active course registrations found for the current term.
+                  <td colSpan="4" className="py-4 text-center text-secondary">
+                    No registered courses found.
                   </td>
                 </tr>
               ) : (
-                registrations.map((r) => (
-                  <tr key={r._id}>
+                registrations.map((registration) => (
+                  <tr key={registration._id}>
                     <td className="py-3 fw-bold text-body">
-                      {r.offeringId?.courseId?.code}{" "}
+                      {registration.offeringId?.courseId?.code}{" "}
                       <span className="fw-medium text-secondary">
-                        — {r.offeringId?.courseId?.title}
+                        — {registration.offeringId?.courseId?.title}
                       </span>
                     </td>
                     <td className="py-3 text-secondary">
-                      {r.offeringId?.day} {r.offeringId?.startTime}-
-                      {r.offeringId?.endTime}
-                    </td>
-                    <td className="py-3 text-secondary">
-                      {r.offeringId?.room}
-                    </td>
-                    <td className="py-3 text-secondary">
-                      {r.offeringId?.instructor}
-                    </td>
-                    <td className="py-3">
-                      {r.offeringId?.addDropOpen ? (
-                        <span className="d-inline-flex align-items-center gap-2 bg-success-subtle text-success-emphasis dashboard-caption fw-bold px-2 py-1 rounded-pill border border-success-subtle">
-                          <span className="registration-dot bg-success rounded-pill"></span>{" "}
-                          Open
-                        </span>
-                      ) : (
-                        <span className="d-inline-flex align-items-center bg-light text-secondary dashboard-caption fw-semibold px-2 py-1 rounded-pill">
-                          Closed
-                        </span>
-                      )}
+                      {registration.offeringId?.day}{" "}
+                      {registration.offeringId?.startTime}-
+                      {registration.offeringId?.endTime}
                     </td>
                     <td className="py-3 text-center">
-                      {r.offeringId?.addDropOpen && (
-                        <button
-                          onClick={() =>
-                            setSelectedCourse(r.offeringId?.courseId)
-                          }
-                          className="btn btn-dark btn-sm fw-bold"
-                        >
-                          Request Add/Drop
-                        </button>
-                      )}
+                      <span
+                        className={`badge ${
+                          registration.status === "pending"
+                            ? "bg-warning-subtle text-warning-emphasis"
+                            : "bg-success-subtle text-success-emphasis"
+                        }`}
+                      >
+                        {registration.status === "pending"
+                          ? "Pending Approval"
+                          : "Registered"}
+                      </span>
+                    </td>
+                    <td className="py-3 text-end">
+                      {registration.status === "registered" &&
+                        registration.offeringId?.addDropOpen && (
+                          <button
+                            onClick={() =>
+                              setSelectedCourse(
+                                registration.offeringId?.courseId,
+                              )
+                            }
+                            className="btn btn-dark btn-sm fw-bold"
+                          >
+                            Request Add/Drop
+                          </button>
+                        )}
                     </td>
                   </tr>
                 ))
@@ -314,7 +442,204 @@ export default function StudentDashboard({ user }) {
         </div>
       </div>
 
-      {/* --- Section 2: Dynamic Academic Progress & Transcript Grid --- */}
+      {/* --- STANDALONE CARD: Courses You Can Request & My Course Requests --- */}
+      <div className="card border-0 dashboard-card p-4 dashboard-stack">
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+          <div>
+            <h3 className="fs-6 fw-bold text-dark">
+              Available Classes (Term {NEXT_TERM})
+            </h3>
+            <p className="dashboard-caption text-secondary mb-0">
+              Courses not listed in your Academic History can be requested for
+              Term {NEXT_TERM}. Your advisor must approve each request.
+            </p>
+          </div>
+          {/* Search Filter and Course Counter */}
+          <div className="d-flex align-items-center gap-2 w-100 w-md-auto">
+            <span className="badge bg-secondary-subtle text-secondary border dashboard-caption text-nowrap">
+              Showing {filteredUnfinishedCourses.length} of{" "}
+              {unfinishedCourses.length}
+            </span>
+            <input
+              type="text"
+              className="form-control form-control-sm dashboard-caption"
+              placeholder="Search course code or title..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ maxWidth: "250px" }}
+            />
+          </div>
+        </div>
+
+        {recordsError && (
+          <div className="alert alert-danger mb-0" role="alert">
+            {recordsError}
+          </div>
+        )}
+        {coursesError && (
+          <div className="alert alert-danger mb-0" role="alert">
+            {coursesError}
+          </div>
+        )}
+        {courseRequestMessage && (
+          <div className="alert alert-info mb-0" role="status">
+            {courseRequestMessage}
+          </div>
+        )}
+        {courseRequestsError && (
+          <div className="alert alert-danger mb-0" role="alert">
+            {courseRequestsError}
+          </div>
+        )}
+
+        {recordsLoading || coursesLoading ? (
+          <div className="text-center text-secondary py-3">
+            Loading available courses...
+          </div>
+        ) : (
+          <div className="table-responsive">
+            <table className="table table-hover align-middle text-start mb-0">
+              <thead>
+                <tr className="dashboard-caption fw-bold text-secondary text-uppercase">
+                  <th className="pb-3">Course</th>
+                  <th className="pb-3">Academic History</th>
+                  <th className="pb-3 text-end">Action</th>
+                </tr>
+              </thead>
+              <tbody className="dashboard-caption">
+                {recordsError || coursesError ? (
+                  <tr>
+                    <td colSpan="3" className="py-4 text-center text-secondary">
+                      Courses cannot be requested until course history loads.
+                    </td>
+                  </tr>
+                ) : filteredUnfinishedCourses.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="py-4 text-center text-secondary">
+                      {searchTerm
+                        ? "No courses match your search criteria."
+                        : "No courses are missing from Academic History."}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUnfinishedCourses.map((course) => {
+                    const hasActiveRequest = activeCourseRequestIds.has(
+                      String(course._id),
+                    );
+                    return (
+                      <tr key={course._id}>
+                        <td className="py-3 fw-bold text-body">
+                          {course.code}{" "}
+                          <span className="fw-medium text-secondary">
+                            — {course.title}
+                          </span>
+                        </td>
+                        <td className="py-3 text-secondary">Not recorded</td>
+                        <td className="py-3 text-end">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleRequestUnfinishedCourse(course._id)
+                            }
+                            className="btn btn-primary btn-sm fw-bold"
+                            disabled={
+                              Boolean(recordsError || coursesError) ||
+                              courseRequestsLoading ||
+                              Boolean(courseRequestsError) ||
+                              hasActiveRequest ||
+                              requestingCourseId === course._id
+                            }
+                          >
+                            {requestingCourseId === course._id
+                              ? "Requesting..."
+                              : hasActiveRequest
+                                ? courseRequests.find(
+                                    (request) =>
+                                      request.term === NEXT_TERM &&
+                                      String(request.courseId?._id) ===
+                                        String(course._id),
+                                  )?.status === "approved"
+                                  ? "Approved"
+                                  : "Request Pending"
+                                : "Request Course"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Inner Section: My Course Requests */}
+        <div className="border-top pt-3">
+          <h4 className="fs-6 fw-bold text-dark">My Course Requests</h4>
+          {courseRequestsLoading ? (
+            <p className="dashboard-caption text-center text-secondary">
+              Loading course requests...
+            </p>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover align-middle text-start mb-0">
+                <thead>
+                  <tr className="dashboard-caption fw-bold text-secondary text-uppercase">
+                    <th className="pb-3">Course</th>
+                    <th className="pb-3">Request Date</th>
+                    <th className="pb-3 text-center">Advisor Decision</th>
+                  </tr>
+                </thead>
+                <tbody className="dashboard-caption">
+                  {termCourseRequests.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan="3"
+                        className="py-4 text-center text-secondary"
+                      >
+                        No course requests submitted for Term {NEXT_TERM}.
+                      </td>
+                    </tr>
+                  ) : (
+                    termCourseRequests.map((request) => (
+                      <tr key={request._id}>
+                        <td className="py-3 fw-bold text-body">
+                          {request.courseId?.code}{" "}
+                          <span className="fw-medium text-secondary">
+                            — {request.courseId?.title}
+                          </span>
+                        </td>
+                        <td className="py-3 text-secondary">
+                          {new Date(request.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 text-center">
+                          <span
+                            className={`badge ${
+                              request.status === "pending"
+                                ? "bg-warning-subtle text-warning-emphasis"
+                                : request.status === "approved"
+                                  ? "bg-success-subtle text-success-emphasis"
+                                  : "bg-danger-subtle text-danger-emphasis"
+                            }`}
+                          >
+                            {request.status === "pending"
+                              ? "Pending"
+                              : request.status === "approved"
+                                ? "Approved"
+                                : "Rejected"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- Section 3: Dynamic Academic Progress & Transcript Grid --- */}
       <div className="row g-4">
         {/* Left Column (2/3): Dynamic Semester Transcript Breakdown */}
         <div className="col-lg-8 dashboard-stack">
@@ -418,7 +743,7 @@ export default function StudentDashboard({ user }) {
                     </div>
                   </div>
 
-                  {/* Dynamic Course Table */}
+                  {/* Course Table */}
                   <div className="table-responsive">
                     <table className="table table-borderless align-middle mb-0 dashboard-caption">
                       <thead>
@@ -442,7 +767,7 @@ export default function StudentDashboard({ user }) {
                             </td>
                             <td className="text-end py-2">
                               <span
-                                className="dashboard-caption fw-bold px-2 py-1 rounded shadow-xs"
+                                className="dashboard-caption fw-bold px-3 py-1 rounded-pill shadow-xs"
                                 style={{
                                   backgroundColor:
                                     c.grade === "A"
@@ -480,7 +805,7 @@ export default function StudentDashboard({ user }) {
                     </table>
                   </div>
 
-                  {/* Dual Summary Blocks (Matching Stamford Registrar Screenshot) */}
+                  {/* Dual Summary Blocks */}
                   <div className="bg-light p-3 rounded-3 mt-2">
                     <div className="row text-center g-3">
                       {/* THIS SEMESTER */}
@@ -635,11 +960,11 @@ export default function StudentDashboard({ user }) {
             })}
         </div>
 
-        {/* Right Column (1/3): User Profile & Advisor Info */}
+        {/* Right Column (1/3): Student Information & Advisor */}
         <div className="col-lg-4 dashboard-stack">
           <h3 className="fs-6 fw-bold text-dark">Student Information</h3>
 
-          {/* User Profile Card */}
+          {/* Profile Card */}
           <div className="card border-primary-subtle dashboard-card p-3 p-md-4 dashboard-stack">
             <div className="d-flex align-items-center gap-3">
               <div
@@ -672,7 +997,6 @@ export default function StudentDashboard({ user }) {
 
               <div className="d-flex justify-content-between align-items-center">
                 <span className="text-secondary">Total GPA score:</span>
-                {/* Colored Pill Badge using topCgpaStyle */}
                 <span
                   className="fw-bold px-2 py-0.5 rounded-pill shadow-xs"
                   style={{
@@ -686,7 +1010,7 @@ export default function StudentDashboard({ user }) {
             </div>
           </div>
 
-          {/* Advisor Info Box */}
+          {/* Assigned Advisor Box */}
           <div className="card border-primary-subtle advisor-card rounded-4 p-3 p-md-4 dashboard-stack">
             <span className="dashboard-eyebrow fw-bold text-primary text-uppercase">
               Assigned Academic Advisor

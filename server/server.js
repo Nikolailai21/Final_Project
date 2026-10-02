@@ -21,6 +21,8 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/csc220_db')
 // Register Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/courses', require('./routes/courseRoutes'));
+app.use('/api/course-requests', require('./routes/courseRequestRoutes'));
 app.use('/api/offerings', require('./routes/offeringRoutes'));
 app.use('/api/registrations', require('./routes/registrationRoutes'));
 app.use('/api/students', require('./routes/studentRoutes'));
