@@ -225,7 +225,19 @@ export default function AdvisorDashboard({ user }) {
       setRegisterError(err.message || "Failed to review course request.");
     }
   };
-
+  const handleRemoveApproved = async (requestId) => {
+    if (!window.confirm("Are you sure you want to revoke this approval? This will remove the course from the student's schedule.")) return;
+    setRegisterError("");
+    setRegisterSuccess("");
+    try {
+      await apiFetch(`/course-requests/${requestId}`, { method: "DELETE" });
+      // Refresh the student's data so the table updates immediately
+      await handleSelectStudent(selectedStudentId);
+      setRegisterSuccess("Approved course revoked and removed from schedule.");
+    } catch (err) {
+      setRegisterError(err.message || "Failed to remove approved request.");
+    }
+  };
   return (
     <div className="container-xxl advisor-dashboard pb-5 p-3 p-md-4 rounded-4 bg-body-tertiary">
       {/* Top Banner */}
@@ -674,30 +686,38 @@ export default function AdvisorDashboard({ user }) {
                             </td>
                             <td className="text-end py-2">
                               {request.status === "pending" && (
-                                <div className="d-inline-flex gap-2">
+                                  <div className="d-inline-flex gap-2">
+                                    <button
+                                        onClick={() =>
+                                            handleReviewUnfinishedCourseRequest(
+                                                request._id,
+                                                "approved",
+                                            )
+                                        }
+                                        className="btn btn-success btn-sm fw-bold"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                        onClick={() =>
+                                            handleReviewUnfinishedCourseRequest(
+                                                request._id,
+                                                "rejected",
+                                            )
+                                        }
+                                        className="btn btn-outline-danger btn-sm fw-bold"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                              )}
+                              {request.status === "approved" && (
                                   <button
-                                    onClick={() =>
-                                      handleReviewUnfinishedCourseRequest(
-                                        request._id,
-                                        "approved",
-                                      )
-                                    }
-                                    className="btn btn-success btn-sm fw-bold"
+                                      onClick={() => handleRemoveApproved(request._id)}
+                                      className="btn btn-danger btn-sm fw-bold"
                                   >
-                                    Approve
+                                    Revoke
                                   </button>
-                                  <button
-                                    onClick={() =>
-                                      handleReviewUnfinishedCourseRequest(
-                                        request._id,
-                                        "rejected",
-                                      )
-                                    }
-                                    className="btn btn-outline-danger btn-sm fw-bold"
-                                  >
-                                    Reject
-                                  </button>
-                                </div>
                               )}
                             </td>
                           </tr>

@@ -4,28 +4,33 @@ const courseRequestController = require("../controllers/courseRequestController"
 const { verifyToken, authorizeRoles } = require("../middleware/auth");
 
 router.get(
-  "/me",
-  verifyToken,
-  authorizeRoles("student"),
-  courseRequestController.getMyCourseRequests,
+    "/me",
+    verifyToken,
+    authorizeRoles("student"),
+    courseRequestController.getMyCourseRequests,
 );
 router.get(
-  "/student/:studentId",
-  verifyToken,
-  authorizeRoles("advisor"),
-  courseRequestController.getStudentCourseRequests,
+    "/student/:studentId",
+    verifyToken,
+    authorizeRoles("advisor"),
+    courseRequestController.getStudentCourseRequests,
 );
 router.post(
-  "/",
-  verifyToken,
-  authorizeRoles("student"),
-  courseRequestController.createCourseRequest,
+    "/",
+    verifyToken,
+    authorizeRoles("student"),
+    courseRequestController.createCourseRequest,
 );
 router.patch(
-  "/:id",
-  verifyToken,
-  authorizeRoles("advisor"),
-  courseRequestController.reviewCourseRequest,
+    "/:id",
+    verifyToken,
+    authorizeRoles("advisor"),
+    courseRequestController.reviewCourseRequest,
+);
+router.delete(
+    "/:id",
+    verifyToken,
+    courseRequestController.deleteCourseRequest,
 );
 
 module.exports = router;

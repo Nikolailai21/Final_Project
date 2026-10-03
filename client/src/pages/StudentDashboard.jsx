@@ -1,3 +1,4 @@
+import Schedule from "../components/Schedule";
 import React, { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import AddDropModal from "../components/AddDropModal";
@@ -179,7 +180,21 @@ export default function StudentDashboard({ user }) {
       setRequestingOfferingId("");
     }
   };
-
+  const handleCancelRequest = async (courseId) => {
+    setCourseRequestMessage("");
+    try {
+      // Find the specific request ID for this course
+      const requestToCancel = courseRequests.find(
+          (r) => String(r.courseId?._id || r.courseId) === String(courseId) && r.status === "pending"
+      );
+      if (requestToCancel) {
+        await apiFetch(`/course-requests/${requestToCancel._id}`, { method: "DELETE" });
+        await loadCourseRequests(true);
+      }
+    } catch (err) {
+      setCourseRequestMessage(err.message || "Failed to cancel request.");
+    }
+  };
   const unfinishedCourses = getUnfinishedCourses(courses, records);
 
   // Filtered courses based on search query
@@ -355,7 +370,7 @@ export default function StudentDashboard({ user }) {
           </div>
         </div>
       </div>
-
+      <Schedule registrations={registrations} />
       {/* --- STANDALONE CARD: My Registered Courses --- */}
       <div className="card border-0 dashboard-card p-4 dashboard-stack">
         <div className="d-flex justify-content-between align-items-center">
@@ -507,67 +522,72 @@ export default function StudentDashboard({ user }) {
                 </tr>
               </thead>
               <tbody className="dashboard-caption">
-                {recordsError || coursesError ? (
+              {recordsError || coursesError ? (
                   <tr>
                     <td colSpan="3" className="py-4 text-center text-secondary">
                       Courses cannot be requested until course history loads.
                     </td>
                   </tr>
-                ) : filteredUnfinishedCourses.length === 0 ? (
+              ) : filteredUnfinishedCourses.length === 0 ? (
                   <tr>
                     <td colSpan="3" className="py-4 text-center text-secondary">
                       {searchTerm
-                        ? "No courses match your search criteria."
-                        : "No courses are missing from Academic History."}
+                          ? "No courses match your search criteria."
+                          : "No courses are missing from Academic History."}
                     </td>
                   </tr>
-                ) : (
+              ) : (
                   filteredUnfinishedCourses.map((course) => {
                     const hasActiveRequest = activeCourseRequestIds.has(
-                      String(course._id),
+                        String(course._id),
                     );
                     return (
-                      <tr key={course._id}>
-                        <td className="py-3 fw-bold text-body">
-                          {course.code}{" "}
-                          <span className="fw-medium text-secondary">
+                        <tr key={course._id}>
+                          <td className="py-3 fw-bold text-body">
+                            {course.code}{" "}
+                            <span className="fw-medium text-secondary">
                             — {course.title}
                           </span>
-                        </td>
-                        <td className="py-3 text-secondary">Not recorded</td>
-                        <td className="py-3 text-end">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleRequestUnfinishedCourse(course._id)
-                            }
-                            className="btn btn-primary btn-sm fw-bold"
-                            disabled={
-                              Boolean(recordsError || coursesError) ||
-                              courseRequestsLoading ||
-                              Boolean(courseRequestsError) ||
-                              hasActiveRequest ||
-                              requestingCourseId === course._id
-                            }
-                          >
-                            {requestingCourseId === course._id
-                              ? "Requesting..."
-                              : hasActiveRequest
-                                ? courseRequests.find(
-                                    (request) =>
-                                      request.term === NEXT_TERM &&
-                                      String(request.courseId?._id) ===
-                                        String(course._id),
-                                  )?.status === "approved"
-                                  ? "Approved"
-                                  : "Request Pending"
-                                : "Request Course"}
-                          </button>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="py-3 text-secondary">Not recorded</td>
+                          <td className="py-3 text-end">
+                            {hasActiveRequest ? (
+                                courseRequests.find(
+                                    (r) => String(r.courseId?._id || r.courseId) === String(course._id)
+                                )?.status === "pending" ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCancelRequest(course._id)}
+                                        className="btn btn-outline-danger btn-sm fw-bold"
+                                    >
+                                      Take Back
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        className="btn btn-success btn-sm fw-bold opacity-75"
+                                        disabled
+                                    >
+                                      Approved
+                                    </button>
+                                )
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => handleRequestUnfinishedCourse(course._id)}
+                                    className="btn btn-primary btn-sm fw-bold"
+                                    disabled={requestingCourseId === course._id}
+                                >
+                                  {requestingCourseId === course._id
+                                      ? "Requesting..."
+                                      : "Request Course"}
+                                </button>
+                            )}
+                          </td>
+                        </tr>
                     );
                   })
-                )}
+              )}
               </tbody>
             </table>
           </div>

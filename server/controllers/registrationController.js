@@ -1,3 +1,4 @@
+const CourseRequest = require("../models/CourseRequest");
 const Registration = require("../models/Registration");
 const Offering = require("../models/Offering");
 const Record = require("../models/Record");
@@ -10,7 +11,7 @@ exports.getEligibleCourses = async (req, res) => {
   try {
     const studentId = req.params.studentId || req.user.id;
     const term =
-      req.query.term || (req.user.role === "student" ? "2026-2" : "2026-1");
+        req.query.term || (req.user.role === "student" ? "2026-2" : "2026-1");
 
     // 1. Fetch current offerings for the term
     const offerings = await Offering.find({ term }).populate("courseId");
@@ -38,10 +39,10 @@ exports.getEligibleCourses = async (req, res) => {
 
       // Check Rule 2 & 3: Academic History
       const courseRecords = records.filter(
-        (r) => r.courseId._id.toString() === course._id.toString(),
+          (r) => r.courseId._id.toString() === course._id.toString(),
       );
       const passed = courseRecords.some((r) =>
-        PASSING_GRADES.includes(r.grade),
+          PASSING_GRADES.includes(r.grade),
       );
       const failed = courseRecords.some((r) => r.grade === "F") && !passed;
 
@@ -55,16 +56,16 @@ exports.getEligibleCourses = async (req, res) => {
       }
 
       const activeCourseRegistration = currentRegs.find(
-        (registration) =>
-          String(registration.offeringId?.courseId?._id) ===
-          String(course._id),
+          (registration) =>
+              String(registration.offeringId?.courseId?._id) ===
+              String(course._id),
       );
       if (activeCourseRegistration) {
         eligible = false;
         reason =
-          activeCourseRegistration.status === "pending"
-            ? "Request pending advisor approval"
-            : "Already registered this term";
+            activeCourseRegistration.status === "pending"
+                ? "Request pending advisor approval"
+                : "Already registered this term";
       }
 
       // Check Rule 4a: Seat Availability
@@ -80,8 +81,8 @@ exports.getEligibleCourses = async (req, res) => {
           if (activeOff.day === offering.day) {
             // Check overlapping time intervals
             if (
-              offering.startTime < activeOff.endTime &&
-              offering.endTime > activeOff.startTime
+                offering.startTime < activeOff.endTime &&
+                offering.endTime > activeOff.startTime
             ) {
               eligible = false;
               reason = `Clashes with ${activeOff.courseId.code} Section ${activeOff.section}`;
@@ -139,8 +140,8 @@ exports.requestCourse = async (req, res) => {
     });
     if (alreadyPassed) {
       return res
-        .status(400)
-        .json({ message: "You have already passed this course" });
+          .status(400)
+          .json({ message: "You have already passed this course" });
     }
 
     const offeringIds = await Offering.find({
@@ -155,10 +156,35 @@ exports.requestCourse = async (req, res) => {
     });
     if (existing) {
       return res
-        .status(409)
-        .json({
-          message: "You already requested or registered for this course",
-        });
+          .status(409)
+          .json({
+            message: "You already requested or registered for this course",
+          });
+    }
+
+    // Fetch the student's current and pending registrations for the term
+    const currentRegs = await Registration.find({
+      studentId: req.user.id,
+      term: offering.term,
+      status: { $in: ["pending", "registered"] }
+    }).populate("offeringId");
+
+    // Check for time clashes with the requested offering
+    for (let reg of currentRegs) {
+      const activeOff = reg.offeringId;
+      if (activeOff && activeOff._id.toString() !== offering._id.toString()) {
+        if (activeOff.day === offering.day) {
+          // If the time intervals overlap
+          if (
+              offering.startTime < activeOff.endTime &&
+              offering.endTime > activeOff.startTime
+          ) {
+            return res.status(400).json({
+              message: `Time conflict: Clashes with ${activeOff.courseId?.code || 'another course'} in your schedule.`
+            });
+          }
+        }
+      }
     }
 
     const registration = await Registration.create({
@@ -168,10 +194,10 @@ exports.requestCourse = async (req, res) => {
       status: "pending",
     });
     res.status(201).json(
-      await Registration.findById(registration._id).populate({
-        path: "offeringId",
-        populate: { path: "courseId" },
-      }),
+        await Registration.findById(registration._id).populate({
+          path: "offeringId",
+          populate: { path: "courseId" },
+        }),
     );
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -211,47 +237,45 @@ exports.approveCourseRequest = async (req, res) => {
     });
     if (alreadyRegistered) {
       return res
-        .status(409)
-        .json({ message: "Student is already registered for this course" });
+          .status(409)
+          .json({ message: "Student is already registered for this course" });
     }
 
     const offering = await Offering.findOneAndUpdate(
-      {
-        _id: registration.offeringId._id,
-        $expr: { $lt: ["$seatsTaken", "$seats"] },
-      },
-      { $inc: { seatsTaken: 1 } },
-      { new: true },
+        {
+          _id: registration.offeringId._id,
+          $expr: {$lt: ["$seatsTaken", "$seats"] },
+        },
+        { $inc: { seatsTaken: 1 } },
+        { new: true },
     );
     if (!offering) {
       return res
-        .status(400)
-        .json({ message: "This course section is full or unavailable" });
+          .status(400)
+          .json({ message: "This course section is full or unavailable" });
     }
 
     try {
       const approved = await Registration.findOneAndUpdate(
-        { _id: registration._id, status: "pending" },
-        { $set: { status: "registered" } },
-        { new: true },
+          { _id: registration._id, status: "pending" },
+          { $set: { status: "registered" } },
+          { new: true },
       ).populate({
         path: "offeringId",
         populate: { path: "courseId" },
       });
       if (!approved) {
         await Offering.updateOne(
-          { _id: offering._id, seatsTaken: { $gt: 0 } },
-          { $inc: { seatsTaken: -1 } },
+            { _id: offering._id, seatsTaken: { $gt: 0 } },           {$inc: { seatsTaken: -1 } },
         );
         return res
-          .status(409)
-          .json({ message: "Request has already been reviewed" });
+            .status(409)
+            .json({ message: "Request has already been reviewed" });
       }
       return res.json(approved);
     } catch (err) {
       await Offering.updateOne(
-        { _id: offering._id, seatsTaken: { $gt: 0 } },
-        { $inc: { seatsTaken: -1 } },
+          { _id: offering._id, seatsTaken: { $gt: 0 } },         {$inc: { seatsTaken: -1 } },
       );
       throw err;
     }
@@ -267,8 +291,8 @@ exports.registerCourse = async (req, res) => {
     const offering = await Offering.findById(offeringId);
     if (!offering || offering.seatsTaken >= offering.seats) {
       return res
-        .status(400)
-        .json({ message: "Section is full or unavailable" });
+          .status(400)
+          .json({ message: "Section is full or unavailable" });
     }
 
     const registration = await Registration.create({
@@ -290,7 +314,8 @@ exports.registerCourse = async (req, res) => {
 
 exports.dropCourse = async (req, res) => {
   try {
-    const registration = await Registration.findById(req.params.id);
+    // Populate offeringId so we can access the courseId attached to it
+    const registration = await Registration.findById(req.params.id).populate("offeringId");
     if (!registration)
       return res.status(404).json({ message: "Registration not found" });
 
@@ -298,14 +323,22 @@ exports.dropCourse = async (req, res) => {
     registration.status = "dropped";
     await registration.save();
 
-    // Decrement seat count
-    const offering = await Offering.findById(registration.offeringId);
+    const offering = registration.offeringId;
     if (wasRegistered && offering && offering.seatsTaken > 0) {
       offering.seatsTaken -= 1;
       await offering.save();
     }
 
-    res.json({ message: "Course dropped successfully" });
+    // NEW FIX: Find and delete the underlying Course Request so it doesn't get stuck forever
+    if (offering && offering.courseId) {
+      await CourseRequest.findOneAndDelete({
+        studentId: registration.studentId,
+        courseId: offering.courseId._id || offering.courseId,
+        term: registration.term,
+      });
+    }
+
+    res.json({ message: "Course dropped and request cleared successfully" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
