@@ -2,8 +2,15 @@ const express = require("express");
 const router = express.Router();
 const studentController = require("../controllers/studentController");
 const regController = require("../controllers/registrationController");
+const telegramController = require("../controllers/telegramController");
 const { verifyToken, authorizeRoles } = require("../middleware/auth");
 
+router.post(
+  "/me/withdrawal-request-telegram",
+  verifyToken,
+  authorizeRoles("student"),
+  telegramController.sendAddDropNotification,
+);
 router.get("/me/record", verifyToken, studentController.getStudentRecord);
 router.get(
   "/me/registrations",
@@ -33,11 +40,5 @@ router.get(
   verifyToken,
   authorizeRoles("advisor"),
   studentController.getStudentRegistrations,
-);
-router.get(
-  "/:studentId/eligible-courses",
-  verifyToken,
-  authorizeRoles("advisor"),
-  regController.getEligibleCourses,
 );
 module.exports = router;

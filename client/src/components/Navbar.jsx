@@ -3,8 +3,25 @@ import React from "react";
 import logoImg from "../assets/Stamford-International-University-feature-img_bg_removed.png.png";
 
 export default function Navbar({ user, onLogout }) {
+  // Helper for dynamic role badge styling matching the screenshot colors
+  const getRoleBadgeClass = (role) => {
+    switch (role?.toLowerCase()) {
+      case "admin":
+        return "bg-danger-subtle text-danger border-danger-subtle";
+      case "advisor":
+        return "bg-info-subtle text-info-emphasis border-info-subtle";
+      case "student":
+        return "bg-primary-subtle text-primary border-primary-subtle";
+      default:
+        return "bg-light text-dark border-light";
+    }
+  };
+
   return (
-    <header className="navbar-shell text-white shadow">
+    <header
+      className="navbar-shell text-white shadow"
+      style={{ backgroundColor: "#0094DA" }}
+    >
       <div className="container-fluid container-xxl py-3 d-flex justify-content-between align-items-center">
         <div className="d-flex align-items-center gap-3">
           <div className="bg-white text-white fw-bold p-1 rounded d-flex align-items-center justify-content-center">
@@ -28,7 +45,11 @@ export default function Navbar({ user, onLogout }) {
           <div className="d-flex align-items-center gap-3">
             <div className="text-end">
               <p className="small fw-semibold text-nowrap mb-1">{user.name}</p>
-              <span className="badge text-bg-dark text-primary text-uppercase">
+              <span
+                className={`badge border text-uppercase px-2.5 py-1 ${getRoleBadgeClass(
+                  user.role,
+                )}`}
+              >
                 {user.role}
               </span>
             </div>

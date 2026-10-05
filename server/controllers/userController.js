@@ -9,7 +9,7 @@ exports.getUsers = async (req, res) => {
     const filter = role ? { role } : {};
     const users = await User.find(filter)
       .select("-passwordHash")
-      .populate("advisorId", "name email");
+      .populate("advisorId", "name email telegramChatId");
     res.json(users);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -18,7 +18,15 @@ exports.getUsers = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role, studentId, advisorId } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role,
+      studentId,
+      advisorId,
+      telegramChatId,
+    } = req.body;
     const existing = await User.findOne({ email });
     if (existing)
       return res.status(400).json({ message: "User already exists" });
@@ -34,11 +42,22 @@ exports.createUser = async (req, res) => {
         return res.status(400).json({ message: "Student ID already exists" });
       }
     }
+    const normalizedTelegramChatId =
+      typeof telegramChatId === "string" ? telegramChatId.trim() : "";
+    if (
+      role === "advisor" &&
+      normalizedTelegramChatId &&
+      !/^-?\d+$/.test(normalizedTelegramChatId)
+    ) {
+      return res.status(400).json({ message: "Enter a valid Telegram chat ID" });
+    }
 
     const passwordHash = await bcrypt.hash(password || "password123", 10);
     const user = await User.create({
       name,
       email,
+      telegramChatId:
+        role === "advisor" ? normalizedTelegramChatId : "",
       passwordHash,
       role,
       studentId: normalizedStudentId,
@@ -55,7 +74,15 @@ exports.updateUser = async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const { name, email, role, active, studentId, advisorId } = req.body;
+    const {
+      name,
+      email,
+      role,
+      active,
+      studentId,
+      advisorId,
+      telegramChatId,
+    } = req.body;
     const normalizedStudentId =
       typeof studentId === "string" ? studentId.trim() : studentId;
     const updatedRole = role ?? user.role;
@@ -74,6 +101,23 @@ exports.updateUser = async (req, res) => {
       if (existingStudentId) {
         return res.status(400).json({ message: "Student ID already exists" });
       }
+    }
+    if (telegramChatId !== undefined || updatedRole !== user.role) {
+      const normalizedTelegramChatId =
+        typeof telegramChatId === "string"
+          ? telegramChatId.trim()
+          : "";
+      if (
+        updatedRole === "advisor" &&
+        normalizedTelegramChatId &&
+        !/^-?\d+$/.test(normalizedTelegramChatId)
+      ) {
+        return res
+          .status(400)
+          .json({ message: "Enter a valid Telegram chat ID" });
+      }
+      user.telegramChatId =
+        updatedRole === "advisor" ? normalizedTelegramChatId : "";
     }
 
     if (name !== undefined) user.name = name;

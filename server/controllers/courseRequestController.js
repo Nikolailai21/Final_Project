@@ -5,6 +5,11 @@ const Course = require("../models/Course");
 const CourseRequest = require("../models/CourseRequest");
 const Record = require("../models/Record");
 const User = require("../models/User");
+const {
+  describeScheduleConflict,
+  findScheduleConflict,
+  hasScheduleConflict,
+} = require("../utils/schedule");
 
 exports.getMyCourseRequests = async (req, res) => {
   try {
@@ -39,7 +44,55 @@ exports.getStudentCourseRequests = async (req, res) => {
     })
         .sort({ createdAt: -1 })
         .populate("courseId");
-    res.json(requests);
+    const pendingRequests = requests.filter(
+      (request) => request.status === "pending",
+    );
+    const terms = [...new Set(pendingRequests.map((request) => request.term))];
+    const courseIds = [
+      ...new Set(
+          pendingRequests
+              .filter((request) => request.courseId)
+              .map((request) => request.courseId._id.toString()),
+      ),
+    ];
+    const [offerings, registrations] = await Promise.all([
+      Offering.find({ term: { $in: terms }, courseId: { $in: courseIds } })
+          .sort({ section: 1 })
+          .populate("courseId"),
+      Registration.find({
+        studentId: req.params.studentId,
+        term: { $in: terms },
+        status: { $in: ["pending", "registered"] },
+      }).populate({
+        path: "offeringId",
+        populate: { path: "courseId" },
+      }),
+    ]);
+
+    res.json(
+        requests.map((request) => {
+          const offering = offerings.find(
+              (item) =>
+                item.term === request.term &&
+                request.courseId &&
+                item.courseId._id.toString() === request.courseId._id.toString(),
+          );
+          const conflict = request.status === "pending" && offering
+              ? registrations.find(
+                  (registration) =>
+                    registration.term === request.term &&
+                    registration.offeringId &&
+                    hasScheduleConflict(offering, registration.offeringId),
+              )
+              : null;
+          const requestData = request.toObject();
+          requestData.scheduleOffering = offering || null;
+          requestData.scheduleConflict = conflict
+              ? describeScheduleConflict(conflict)
+              : null;
+          return requestData;
+        }),
+    );
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -135,31 +188,86 @@ exports.reviewCourseRequest = async (req, res) => {
         });
       }
 
-      // Hardcode the target term so it matches the frontend's NEXT_TERM
-      const targetTerm = "2026-2";
-
-      // Auto-generate an offering for the schedule (defaulting to Monday 09:00 - 12:00)
-      const newOffering = await Offering.create({
+      const offering = await Offering.findOne({
         courseId: request.courseId,
-        term: targetTerm,
-        section: 1,
-        day: "Monday",
-        startTime: "09:00",
-        endTime: "12:00",
-        room: "TBA",
-        instructor: "TBA",
-        seats: 30,
-        seatsTaken: 1,
-        addDropOpen: true
-      });
+        term: request.term,
+      })
+          .sort({ section: 1 })
+          .populate("courseId");
+      if (!offering) {
+        return res.status(409).json({
+          message: "No scheduled offering exists for this course and term.",
+        });
+      }
 
-      // Automatically register the student to this new schedule offering
-      await Registration.create({
+      const scheduleConflict = await findScheduleConflict({
         studentId: request.studentId,
-        offeringId: newOffering._id,
-        term: targetTerm,
-        status: "registered"
+        term: request.term,
+        offering,
       });
+      if (scheduleConflict) {
+        return res.status(409).json({
+          message: `${describeScheduleConflict(scheduleConflict)} You chose the same day and time. Please choose another course.`,
+        });
+      }
+
+      const reservedOffering = await Offering.findOneAndUpdate(
+          {
+            _id: offering._id,
+            $expr: { $lt: ["$seatsTaken", "$seats"] },
+          },
+          { $inc: { seatsTaken: 1 } },
+          { new: true },
+      );
+      if (!reservedOffering) {
+        return res.status(409).json({
+          message: "This course section is full.",
+        });
+      }
+
+      let registration;
+      try {
+        registration = await Registration.create({
+          studentId: request.studentId,
+          offeringId: offering._id,
+          term: request.term,
+          status: "registered",
+        });
+
+        const reviewedRequest = await CourseRequest.findOneAndUpdate(
+            { _id: request._id, status: "pending" },
+            {
+              $set: {
+                status,
+                reviewedBy: req.user.id,
+                reviewedAt: new Date(),
+              },
+            },
+            { new: true },
+        ).populate("courseId");
+
+        if (!reviewedRequest) {
+          await Registration.findByIdAndDelete(registration._id);
+          await Offering.updateOne(
+              { _id: offering._id, seatsTaken: { $gt: 0 } },
+              { $inc: { seatsTaken: -1 } },
+          );
+          return res.status(409).json({
+            message: "This course request has already been reviewed",
+          });
+        }
+
+        return res.json(reviewedRequest);
+      } catch (err) {
+        if (registration) {
+          await Registration.findByIdAndDelete(registration._id);
+        }
+        await Offering.updateOne(
+            { _id: offering._id, seatsTaken: { $gt: 0 } },
+            { $inc: { seatsTaken: -1 } },
+        );
+        throw err;
+      }
     }
 
     const reviewedRequest = await CourseRequest.findOneAndUpdate(
@@ -217,23 +325,23 @@ exports.deleteCourseRequest = async (req, res) => {
         return res.status(403).json({ message: "Unauthorized for this student" });
       }
 
-      // If it was already approved, we must clean up the auto-generated Schedule & Registration
+      // Remove the student's registration without deleting the shared course offering.
       if (request.status === "approved") {
-        const targetTerm = "2026-2"; // Match the hardcoded term we set earlier
-
-        const offering = await Offering.findOne({
+        const offerings = await Offering.find({
           courseId: request.courseId,
-          term: targetTerm
+          term: request.term,
         });
-
-        if (offering) {
-          // 1. Delete the student's registration for this auto-generated block
-          await Registration.findOneAndDelete({
-            studentId: request.studentId,
-            offeringId: offering._id,
-          });
-          // 2. Delete the auto-generated schedule block itself
-          await Offering.findByIdAndDelete(offering._id);
+        const registration = await Registration.findOneAndDelete({
+          studentId: request.studentId,
+          offeringId: { $in: offerings.map((offering) => offering._id) },
+          term: request.term,
+          status: "registered",
+        });
+        if (registration) {
+          await Offering.updateOne(
+              { _id: registration.offeringId, seatsTaken: { $gt: 0 } },
+              { $inc: { seatsTaken: -1 } },
+          );
         }
       }
 

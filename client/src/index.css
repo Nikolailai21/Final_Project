@@ -47,6 +47,11 @@ body {
   box-shadow: 0 1px 3px rgb(15 23 42 / 5%);
 }
 
+.available-classes-card {
+  width: min(100%, 900px);
+  margin-inline: auto;
+}
+
 .dashboard-stack {
   display: flex;
   flex-direction: column;
@@ -120,9 +125,55 @@ body {
   background: linear-gradient(135deg, #eef2ff, #faf5ff);
 }
 
-.add-drop-modal {
+.withdrawal-request-modal {
   overflow-y: auto;
   background: rgb(0 0 0 / 50%);
+}
+
+.offering-modal-dialog {
+  width: min(560px, calc(100% - 1rem));
+  max-width: none;
+}
+
+.offering-modal-body {
+  gap: 1.25rem !important;
+}
+
+.offering-field {
+  min-width: 0;
+}
+
+.offering-field .form-label {
+  display: block;
+  min-height: 1.25rem;
+  margin-bottom: 0.4rem;
+  white-space: nowrap;
+}
+
+.offering-field .form-control,
+.offering-field .form-select {
+  min-height: 42px;
+  border-color: #d7e0ea;
+  border-radius: 0.55rem;
+}
+
+.offering-field .form-control:focus,
+.offering-field .form-select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 0.2rem rgb(37 99 235 / 12%) !important;
+}
+
+.offering-schedule-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.offering-field-hint {
+  display: block;
+  margin-top: 0.3rem;
+  color: #64748b;
+  font-size: 0.7rem;
 }
 
 @media (max-width: 575.98px) {
@@ -145,5 +196,22 @@ body {
 
   .metrics-group {
     width: 100%;
+  }
+
+  .offering-modal-dialog {
+    width: calc(100% - 1rem);
+    margin: 0.5rem auto;
+  }
+
+  .offering-modal-body {
+    padding: 1rem !important;
+  }
+
+  .offering-schedule-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .offering-schedule-fields .offering-field:first-child {
+    grid-column: 1 / -1;
   }
 }

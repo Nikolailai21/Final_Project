@@ -26,6 +26,7 @@ app.use('/api/course-requests', require('./routes/courseRequestRoutes'));
 app.use('/api/offerings', require('./routes/offeringRoutes'));
 app.use('/api/registrations', require('./routes/registrationRoutes'));
 app.use('/api/students', require('./routes/studentRoutes'));
+app.use('/api/telegram', require('./routes/telegramRoutes'));
 
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

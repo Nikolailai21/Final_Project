@@ -1,8 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const offeringController = require("../controllers/offeringController");
+const offeringOptionController = require("../controllers/offeringOptionController");
 const { verifyToken, authorizeRoles } = require("../middleware/auth");
 
+router.get("/options", verifyToken, offeringOptionController.getOfferingOptions);
 router.get("/", verifyToken, offeringController.getOfferings);
 router.post(
   "/",

@@ -5,6 +5,11 @@ const Record = require("../models/Record");
 const Course = require("../models/Course");
 const mongoose = require("mongoose");
 const User = require("../models/User");
+const {
+  describeScheduleConflict,
+  findScheduleConflict,
+  hasScheduleConflict,
+} = require("../utils/schedule");
 
 // Core Rules Engine Evaluator
 exports.getEligibleCourses = async (req, res) => {
@@ -48,9 +53,15 @@ exports.getEligibleCourses = async (req, res) => {
 
       if (passed) {
         const lastGrade = courseRecords[courseRecords.length - 1].grade;
-        eligible = false;
-        reason = `Already passed — grade ${lastGrade}`;
-      } else if (failed) {
+        return {
+          offering,
+          eligible: false,
+          reason: `Already passed — grade ${lastGrade}`,
+          retakeRequired: false,
+        };
+      }
+
+      if (failed) {
         retakeRequired = true;
         reason = "Retake required (Failed in previous term)";
       }
@@ -75,21 +86,15 @@ exports.getEligibleCourses = async (req, res) => {
       }
 
       // Check Rule 4b: Time Clash
-      for (let reg of currentRegs) {
-        const activeOff = reg.offeringId;
-        if (activeOff._id.toString() !== offering._id.toString()) {
-          if (activeOff.day === offering.day) {
-            // Check overlapping time intervals
-            if (
-                offering.startTime < activeOff.endTime &&
-                offering.endTime > activeOff.startTime
-            ) {
-              eligible = false;
-              reason = `Clashes with ${activeOff.courseId.code} Section ${activeOff.section}`;
-              break;
-            }
-          }
-        }
+      const scheduleConflict = currentRegs.find(
+          (registration) =>
+            registration.offeringId &&
+            registration.offeringId._id.toString() !== offering._id.toString() &&
+            hasScheduleConflict(offering, registration.offeringId),
+      );
+      if (scheduleConflict) {
+        eligible = false;
+        reason = `Clashes with ${scheduleConflict.offeringId.courseId.code} Section ${scheduleConflict.offeringId.section}`;
       }
 
       return {
@@ -169,22 +174,16 @@ exports.requestCourse = async (req, res) => {
       status: { $in: ["pending", "registered"] }
     }).populate("offeringId");
 
-    // Check for time clashes with the requested offering
-    for (let reg of currentRegs) {
-      const activeOff = reg.offeringId;
-      if (activeOff && activeOff._id.toString() !== offering._id.toString()) {
-        if (activeOff.day === offering.day) {
-          // If the time intervals overlap
-          if (
-              offering.startTime < activeOff.endTime &&
-              offering.endTime > activeOff.startTime
-          ) {
-            return res.status(400).json({
-              message: `Time conflict: Clashes with ${activeOff.courseId?.code || 'another course'} in your schedule.`
-            });
-          }
-        }
-      }
+    const scheduleConflict = currentRegs.find(
+        (registration) =>
+          registration.offeringId &&
+          registration.offeringId._id.toString() !== offering._id.toString() &&
+          hasScheduleConflict(offering, registration.offeringId),
+    );
+    if (scheduleConflict) {
+      return res.status(409).json({
+        message: describeScheduleConflict(scheduleConflict),
+      });
     }
 
     const registration = await Registration.create({
@@ -241,6 +240,18 @@ exports.approveCourseRequest = async (req, res) => {
           .json({ message: "Student is already registered for this course" });
     }
 
+    const scheduleConflict = await findScheduleConflict({
+      studentId: registration.studentId,
+      term: registration.term,
+      offering: registration.offeringId,
+      excludeRegistrationId: registration._id,
+    });
+    if (scheduleConflict) {
+      return res.status(409).json({
+        message: describeScheduleConflict(scheduleConflict),
+      });
+    }
+
     const offering = await Offering.findOneAndUpdate(
         {
           _id: registration.offeringId._id,
@@ -279,34 +290,6 @@ exports.approveCourseRequest = async (req, res) => {
       );
       throw err;
     }
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-exports.registerCourse = async (req, res) => {
-  try {
-    const { studentId, offeringId, term } = req.body;
-
-    const offering = await Offering.findById(offeringId);
-    if (!offering || offering.seatsTaken >= offering.seats) {
-      return res
-          .status(400)
-          .json({ message: "Section is full or unavailable" });
-    }
-
-    const registration = await Registration.create({
-      studentId,
-      offeringId,
-      term,
-      status: "registered",
-    });
-
-    // Increment seat count
-    offering.seatsTaken += 1;
-    await offering.save();
-
-    res.status(201).json(registration);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

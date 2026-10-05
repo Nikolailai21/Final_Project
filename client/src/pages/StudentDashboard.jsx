@@ -1,9 +1,11 @@
 import Schedule from "../components/Schedule";
 import React, { useEffect, useState } from "react";
 import { apiFetch } from "../api";
-import AddDropModal from "../components/AddDropModal";
+import WithdrawalRequestModal from "../components/WithdrawalRequestModal";
 
 const NEXT_TERM = "2026-2";
+const [NEXT_TERM_YEAR, NEXT_TERM_SEMESTER] = NEXT_TERM.split("-");
+const COMING_SEMESTER_LABEL = `Coming Semester ${NEXT_TERM_SEMESTER}/${NEXT_TERM_YEAR}`;
 
 // Stamford Grade to Grade Points mapping
 const GRADE_POINTS = {
@@ -72,7 +74,7 @@ export default function StudentDashboard({ user }) {
   const [courses, setCourses] = useState([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [coursesError, setCoursesError] = useState("");
-  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [selectedRegistration, setSelectedRegistration] = useState(null);
   const [registrationsError, setRegistrationsError] = useState("");
   const [eligibleCourses, setEligibleCourses] = useState([]);
   const [eligibleCoursesLoading, setEligibleCoursesLoading] = useState(true);
@@ -185,10 +187,14 @@ export default function StudentDashboard({ user }) {
     try {
       // Find the specific request ID for this course
       const requestToCancel = courseRequests.find(
-          (r) => String(r.courseId?._id || r.courseId) === String(courseId) && r.status === "pending"
+        (r) =>
+          String(r.courseId?._id || r.courseId) === String(courseId) &&
+          r.status === "pending",
       );
       if (requestToCancel) {
-        await apiFetch(`/course-requests/${requestToCancel._id}`, { method: "DELETE" });
+        await apiFetch(`/course-requests/${requestToCancel._id}`, {
+          method: "DELETE",
+        });
         await loadCourseRequests(true);
       }
     } catch (err) {
@@ -215,6 +221,40 @@ export default function StudentDashboard({ user }) {
   );
   const termCourseRequests = courseRequests.filter(
     (request) => request.term === NEXT_TERM,
+  );
+  const comingSemesterCoursesById = new Map();
+  courseRequests
+    .filter(
+      (request) =>
+        request.term === NEXT_TERM && request.status === "approved",
+    )
+    .forEach((request) => {
+      const course = request.courseId;
+      if (course?._id) {
+        comingSemesterCoursesById.set(String(course._id), {
+          course,
+          section: "",
+        });
+      }
+    });
+  registrations
+    .filter(
+      (registration) =>
+        registration.term === NEXT_TERM &&
+        registration.status === "registered",
+    )
+    .forEach((registration) => {
+      const offering = registration.offeringId;
+      const course = offering?.courseId;
+      if (course?._id) {
+        comingSemesterCoursesById.set(String(course._id), {
+          course,
+          section: offering.section,
+        });
+      }
+    });
+  const comingSemesterCourses = [...comingSemesterCoursesById.values()].sort(
+    (a, b) => a.course.code.localeCompare(b.course.code),
   );
 
   const processTranscript = (rawRecords) => {
@@ -439,13 +479,11 @@ export default function StudentDashboard({ user }) {
                         registration.offeringId?.addDropOpen && (
                           <button
                             onClick={() =>
-                              setSelectedCourse(
-                                registration.offeringId?.courseId,
-                              )
+                              setSelectedRegistration(registration)
                             }
                             className="btn btn-dark btn-sm fw-bold"
                           >
-                            Request Add/Drop
+                            Withdraw Request
                           </button>
                         )}
                     </td>
@@ -458,7 +496,7 @@ export default function StudentDashboard({ user }) {
       </div>
 
       {/* --- STANDALONE CARD: Courses You Can Request & My Course Requests --- */}
-      <div className="card border-0 dashboard-card p-4 dashboard-stack">
+      <div className="card border-0 dashboard-card available-classes-card p-3 p-md-4 dashboard-stack">
         <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
           <div>
             <h3 className="fs-6 fw-bold text-dark">
@@ -514,80 +552,86 @@ export default function StudentDashboard({ user }) {
         ) : (
           <div className="table-responsive">
             <table className="table table-hover align-middle text-start mb-0">
+              <colgroup>
+                <col />
+                <col style={{ width: "1%" }} />
+              </colgroup>
               <thead>
                 <tr className="dashboard-caption fw-bold text-secondary text-uppercase">
-                  <th className="pb-3">Course</th>
-                  <th className="pb-3">Academic History</th>
-                  <th className="pb-3 text-end">Action</th>
+                  <th className="pb-2">Course</th>
+                  <th className="pb-2 text-end text-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody className="dashboard-caption">
-              {recordsError || coursesError ? (
+                {recordsError || coursesError ? (
                   <tr>
-                    <td colSpan="3" className="py-4 text-center text-secondary">
+                    <td colSpan="2" className="py-4 text-center text-secondary">
                       Courses cannot be requested until course history loads.
                     </td>
                   </tr>
-              ) : filteredUnfinishedCourses.length === 0 ? (
+                ) : filteredUnfinishedCourses.length === 0 ? (
                   <tr>
-                    <td colSpan="3" className="py-4 text-center text-secondary">
+                    <td colSpan="2" className="py-4 text-center text-secondary">
                       {searchTerm
-                          ? "No courses match your search criteria."
-                          : "No courses are missing from Academic History."}
+                        ? "No courses match your search criteria."
+                        : "No courses are missing from Academic History."}
                     </td>
                   </tr>
-              ) : (
+                ) : (
                   filteredUnfinishedCourses.map((course) => {
                     const hasActiveRequest = activeCourseRequestIds.has(
-                        String(course._id),
+                      String(course._id),
                     );
                     return (
-                        <tr key={course._id}>
-                          <td className="py-3 fw-bold text-body">
-                            {course.code}{" "}
-                            <span className="fw-medium text-secondary">
+                      <tr key={course._id}>
+                        <td className="py-2 fw-bold text-body">
+                          {course.code}{" "}
+                          <span className="fw-medium text-secondary">
                             — {course.title}
                           </span>
-                          </td>
-                          <td className="py-3 text-secondary">Not recorded</td>
-                          <td className="py-3 text-end">
-                            {hasActiveRequest ? (
-                                courseRequests.find(
-                                    (r) => String(r.courseId?._id || r.courseId) === String(course._id)
-                                )?.status === "pending" ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => handleCancelRequest(course._id)}
-                                        className="btn btn-outline-danger btn-sm fw-bold"
-                                    >
-                                      Take Back
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        className="btn btn-success btn-sm fw-bold opacity-75"
-                                        disabled
-                                    >
-                                      Approved
-                                    </button>
-                                )
+                        </td>
+                        <td className="py-2 text-end text-nowrap">
+                          {hasActiveRequest ? (
+                            courseRequests.find(
+                              (r) =>
+                                String(r.courseId?._id || r.courseId) ===
+                                String(course._id),
+                            )?.status === "pending" ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelRequest(course._id)}
+                                className="btn btn-outline-danger btn-sm fw-bold"
+                              >
+                                Take Back
+                              </button>
                             ) : (
-                                <button
-                                    type="button"
-                                    onClick={() => handleRequestUnfinishedCourse(course._id)}
-                                    className="btn btn-primary btn-sm fw-bold"
-                                    disabled={requestingCourseId === course._id}
-                                >
-                                  {requestingCourseId === course._id
-                                      ? "Requesting..."
-                                      : "Request Course"}
-                                </button>
-                            )}
-                          </td>
-                        </tr>
+                              <button
+                                type="button"
+                                className="btn btn-success btn-sm fw-bold opacity-75"
+                                disabled
+                              >
+                                Approved
+                              </button>
+                            )
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleRequestUnfinishedCourse(course._id)
+                              }
+                              className="btn btn-primary btn-sm fw-bold"
+                              disabled={requestingCourseId === course._id}
+                            >
+                              {requestingCourseId === course._id
+                                ? "Requesting..."
+                                : "Request Course"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
                     );
                   })
-              )}
+                )}
               </tbody>
             </table>
           </div>
@@ -978,6 +1022,47 @@ export default function StudentDashboard({ user }) {
                 </div>
               );
             })}
+          {!courseRequestsLoading &&
+            comingSemesterCourses.length > 0 && (
+              <div className="card border-0 dashboard-card p-3 p-md-4">
+                <h4 className="small fw-bold text-primary-emphasis border-bottom border-light pb-3 mb-0">
+                  {COMING_SEMESTER_LABEL}
+                </h4>
+                <div className="table-responsive">
+                  <table className="table table-borderless align-middle mb-0 dashboard-caption">
+                    <thead>
+                      <tr
+                        className="border-bottom text-uppercase text-secondary fw-bold"
+                        style={{ fontSize: "11px" }}
+                      >
+                        <th className="pb-2">Course Code</th>
+                        <th className="pb-2">Course Name</th>
+                        <th className="pb-2 text-center">Credits</th>
+                        <th className="pb-2 text-end">Section</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comingSemesterCourses.map(({ course, section }) => (
+                        <tr key={course._id}>
+                          <td className="fw-bold text-body py-2">
+                            {course.code}
+                          </td>
+                          <td className="text-secondary py-2">
+                            {course.title}
+                          </td>
+                          <td className="text-center text-secondary py-2">
+                            {course.credits || 4} Credits
+                          </td>
+                          <td className="text-end text-secondary py-2">
+                            {section || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
         </div>
 
         {/* Right Column (1/3): Student Information & Advisor */}
@@ -1041,23 +1126,18 @@ export default function StudentDashboard({ user }) {
             <p className="dashboard-caption text-secondary">
               Department of Computer Science
             </p>
-            <a
-              href={`mailto:${user.advisor?.email || "wendylu@stamford.edu"}`}
-              className="d-inline-block mt-2 dashboard-caption fw-bold text-primary text-decoration-underline"
-            >
-              Contact Advisor →
-            </a>
+            <span className="dashboard-caption text-secondary">
+              Add/drop requests are sent to your advisor through Telegram.
+            </span>
           </div>
         </div>
       </div>
 
       {/* Add / Drop Modal */}
-      {selectedCourse && (
-        <AddDropModal
-          course={selectedCourse}
-          advisorEmail={user.advisor?.email || "wendylu@stamford.edu"}
-          studentId={user.studentId}
-          onClose={() => setSelectedCourse(null)}
+      {selectedRegistration && (
+        <WithdrawalRequestModal
+          registration={selectedRegistration}
+          onClose={() => setSelectedRegistration(null)}
         />
       )}
     </div>

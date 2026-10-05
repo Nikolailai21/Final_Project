@@ -15,12 +15,6 @@ router.patch(
   authorizeRoles("advisor"),
   regController.approveCourseRequest,
 );
-router.post(
-  "/",
-  verifyToken,
-  authorizeRoles("advisor"),
-  regController.registerCourse,
-);
 router.delete(
   "/:id",
   verifyToken,

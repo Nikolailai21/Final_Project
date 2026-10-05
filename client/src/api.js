@@ -1,7 +1,7 @@
 const API_BASE = "http://localhost:5001/api";
 
 export const apiFetch = async (endpoint, options = {}) => {
-  const token = localStorage.getItem("token");
+  const token = sessionStorage.getItem("token");
   const headers = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

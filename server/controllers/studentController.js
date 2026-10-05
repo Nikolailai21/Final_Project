@@ -45,9 +45,16 @@ exports.getMyRegistrations = async (req, res) => {
 
 exports.getStudentRegistrations = async (req, res) => {
   try {
-    const registrations = await Registration.find({
+    const query = {
       studentId: req.params.studentId,
       status: { $in: ["pending", "registered"] },
+    };
+    if (req.query.term) {
+      query.term = req.query.term;
+    }
+
+    const registrations = await Registration.find({
+      ...query,
     })
       .sort({ term: 1, createdAt: 1 })
       .populate({

@@ -14,8 +14,8 @@ export default function Login({ onLoginSuccess }) {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
+      sessionStorage.setItem("token", data.token);
+      sessionStorage.setItem("user", JSON.stringify(data.user));
       onLoginSuccess(data.user);
     } catch (err) {
       setError(err.message || "Login failed");

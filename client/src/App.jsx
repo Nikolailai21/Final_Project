@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdvisorDashboard from "./pages/AdvisorDashboard";
@@ -6,16 +6,29 @@ import StudentDashboard from "./pages/StudentDashboard";
 import Navbar from "./components/Navbar";
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    let savedUser = sessionStorage.getItem("user");
+    let savedToken = sessionStorage.getItem("token");
 
-  useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) setUser(JSON.parse(savedUser));
-  }, []);
+    if (!savedUser || !savedToken) {
+      const legacyUser = localStorage.getItem("user");
+      const legacyToken = localStorage.getItem("token");
+      if (legacyUser && legacyToken) {
+        sessionStorage.setItem("user", legacyUser);
+        sessionStorage.setItem("token", legacyToken);
+        savedUser = legacyUser;
+        savedToken = legacyToken;
+      }
+      localStorage.removeItem("user");
+      localStorage.removeItem("token");
+    }
+
+    return savedUser && savedToken ? JSON.parse(savedUser) : null;
+  });
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
     setUser(null);
   };
 
