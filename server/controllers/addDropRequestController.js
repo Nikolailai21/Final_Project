@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const AddDropRequest = require("../models/AddDropRequest");
+const CourseRequest = require("../models/CourseRequest");
 const Offering = require("../models/Offering");
 const Registration = require("../models/Registration");
 const User = require("../models/User");
@@ -192,6 +193,11 @@ exports.reviewAddDropRequest = async (req, res) => {
         { _id: currentOffering._id, seatsTaken: { $gt: 0 } },
         { $inc: { seatsTaken: -1 } },
       );
+      await CourseRequest.findOneAndDelete({
+        studentId: request.studentId,
+        courseId: currentOffering.courseId?._id || currentOffering.courseId,
+        term: registration.term,
+      });
     }
 
     const approved = await AddDropRequest.findOneAndUpdate(

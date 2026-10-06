@@ -50,6 +50,9 @@ export default function AdvisorDashboard({ user }) {
   const [showOfferingModal, setShowOfferingModal] = useState(false);
   const [editingOffering, setEditingOffering] = useState(null);
   const [offeringForm, setOfferingForm] = useState(null);
+  const [offeringCourseSearch, setOfferingCourseSearch] = useState("");
+  const [activeOfferingCourseIndex, setActiveOfferingCourseIndex] =
+    useState(-1);
   const [offeringOptions, setOfferingOptions] = useState({
     sections: [],
     rooms: [],
@@ -93,6 +96,44 @@ export default function AdvisorDashboard({ user }) {
   const sectionOptions = offeringOptions.sections.filter(
     (section) => !occupiedSections.has(Number(section)),
   );
+  const overlappingScheduleOfferings = offerings.filter((offering) => {
+    const sameDay =
+      String(offering.day).toLocaleLowerCase() ===
+      String(offeringForm?.day || "").toLocaleLowerCase();
+    const overlapsTime =
+      Boolean(offeringForm?.startTime && offeringForm?.endTime) &&
+      offeringForm.startTime < offering.endTime &&
+      offeringForm.endTime > offering.startTime;
+
+    return (
+      offering.term === offeringForm?.term &&
+      offering._id !== editingOffering?._id &&
+      sameDay &&
+      overlapsTime
+    );
+  });
+  const unavailableRooms = new Set(
+    overlappingScheduleOfferings.map((offering) =>
+      String(offering.room).trim().toLocaleLowerCase(),
+    ),
+  );
+  const unavailableInstructors = new Set(
+    overlappingScheduleOfferings.map((offering) =>
+      String(offering.instructor).trim().toLocaleLowerCase(),
+    ),
+  );
+  const roomOptions = [
+    ...new Set([
+      ...offeringOptions.rooms,
+      ...(offeringForm?.room ? [offeringForm.room] : []),
+    ]),
+  ];
+  const instructorOptions = [
+    ...new Set([
+      ...offeringOptions.instructors,
+      ...(offeringForm?.instructor ? [offeringForm.instructor] : []),
+    ]),
+  ];
   const normalizedStudentSearch = studentSearch.trim().toLocaleLowerCase();
   const filteredStudents = students.filter((student) =>
     [student.name, student.studentId, student.email].some((value) =>
@@ -101,12 +142,47 @@ export default function AdvisorDashboard({ user }) {
         .includes(normalizedStudentSearch),
     ),
   );
+  const normalizedOfferingCourseSearch =
+    offeringCourseSearch.trim().toLocaleLowerCase();
+  const filteredOfferingCourses = courses.filter((course) =>
+    [course.code, course.title].some((value) =>
+      String(value || "")
+        .toLocaleLowerCase()
+        .includes(normalizedOfferingCourseSearch),
+    ),
+  );
+  const selectedOfferingCourse = courses.find(
+    (course) => course._id === offeringForm?.courseId,
+  );
   const selectedStudent = students.find(
     (student) => student._id === selectedStudentId,
   );
   const unreadRequestCount = pendingRequestNotifications.filter(
     (notification) => !notification.read,
   ).length;
+
+  const selectOfferingCourse = (course) => {
+    const usedSections = new Set(
+      offerings
+        .filter(
+          (offering) =>
+            offering.term === offeringForm.term &&
+            offering.courseId?._id === course._id &&
+            offering._id !== editingOffering?._id,
+        )
+        .map((offering) => Number(offering.section)),
+    );
+    const section = offeringOptions.sections.find(
+      (value) => !usedSections.has(Number(value)),
+    );
+    setOfferingForm({
+      ...offeringForm,
+      courseId: course._id,
+      section: section ?? "",
+    });
+    setOfferingCourseSearch("");
+    setActiveOfferingCourseIndex(-1);
+  };
 
   const loadOfferings = useCallback(() => {
     setOfferingLoading(true);
@@ -141,6 +217,14 @@ export default function AdvisorDashboard({ user }) {
     );
     return () => window.clearInterval(intervalId);
   }, [loadPendingRequestNotifications]);
+
+  useEffect(() => {
+    if (activeOfferingCourseIndex >= 0) {
+      document
+        .getElementById(`offering-course-option-${activeOfferingCourseIndex}`)
+        ?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeOfferingCourseIndex]);
 
   const loadCourses = async () => {
     if (coursesLoaded || coursesLoading) return;
@@ -189,6 +273,11 @@ export default function AdvisorDashboard({ user }) {
   const handleSaveOffering = async (e) => {
     e.preventDefault();
     setOfferingSaveError("");
+    if (!offeringForm.courseId) {
+      setOfferingSaveError("Select a course before saving the offering.");
+      return;
+    }
+
     try {
       if (editingOffering) {
         await apiFetch(`/offerings/${editingOffering._id}`, {
@@ -719,6 +808,8 @@ export default function AdvisorDashboard({ user }) {
                 if (!optionData) return;
                 setOfferingSaveError("");
                 setEditingOffering(null);
+                setOfferingCourseSearch("");
+                setActiveOfferingCourseIndex(-1);
                 setOfferingForm({
                   courseId: "",
                   term: "2026-2",
@@ -832,6 +923,8 @@ export default function AdvisorDashboard({ user }) {
                                 if (!optionData) return;
                                 setOfferingSaveError("");
                                 setEditingOffering(off);
+                                setOfferingCourseSearch("");
+                                setActiveOfferingCourseIndex(-1);
                                 setOfferingForm({
                                   courseId: off.courseId?._id || "",
                                   term: off.term,
@@ -1308,54 +1401,147 @@ export default function AdvisorDashboard({ user }) {
                       {offeringOptionsError}
                     </div>
                   )}
-                  <div className="offering-field">
-                    <label className="form-label fw-semibold text-secondary small">
+                  <div className="offering-field position-relative">
+                    <label
+                      htmlFor="offering-course-search"
+                      className="form-label fw-semibold text-secondary small"
+                    >
                       Select Course
                     </label>
-                    <select
-                      className="form-select shadow-none"
-                      value={offeringForm.courseId}
+                    <input
+                      id="offering-course-search"
+                      type="search"
+                      className="form-control shadow-none mb-2"
+                      placeholder="Search by course code or title"
+                      value={offeringCourseSearch}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={Boolean(offeringCourseSearch.trim())}
+                      aria-controls="offering-course-results"
+                      aria-activedescendant={
+                        activeOfferingCourseIndex >= 0
+                          ? `offering-course-option-${activeOfferingCourseIndex}`
+                          : undefined
+                      }
                       onChange={(e) => {
-                        const courseId = e.target.value;
-                        const usedSections = new Set(
-                          offerings
-                            .filter(
-                              (offering) =>
-                                offering.term === offeringForm.term &&
-                                offering.courseId?._id === courseId &&
-                                offering._id !== editingOffering?._id,
-                            )
-                            .map((offering) => Number(offering.section)),
-                        );
-                        const section = offeringOptions.sections.find(
-                          (value) => !usedSections.has(Number(value)),
-                        );
-                        setOfferingForm({
-                          ...offeringForm,
-                          courseId,
-                          section: section ?? "",
-                        });
+                        setOfferingCourseSearch(e.target.value)
+                        setActiveOfferingCourseIndex(-1);
                       }}
-                      required
-                    >
-                      <option value="">
-                        {coursesLoading
-                          ? "Loading courses..."
-                          : coursesError
-                            ? "Unable to load courses"
-                            : courses.length === 0
-                              ? "No courses available"
-                              : "-- Select Course --"}
-                      </option>
-                      {courses.map((c) => (
-                        <option key={c._id} value={c._id}>
-                          {c.code} — {c.title} ({c.credits} Credits)
-                        </option>
-                      ))}
-                    </select>
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "ArrowDown" &&
+                          offeringCourseSearch.trim() &&
+                          filteredOfferingCourses.length > 0
+                        ) {
+                          e.preventDefault();
+                          setActiveOfferingCourseIndex((current) =>
+                            current < filteredOfferingCourses.length - 1
+                              ? current + 1
+                              : 0,
+                          );
+                        } else if (
+                          e.key === "ArrowUp" &&
+                          offeringCourseSearch.trim() &&
+                          filteredOfferingCourses.length > 0
+                        ) {
+                          e.preventDefault();
+                          setActiveOfferingCourseIndex((current) =>
+                            current <= 0
+                              ? filteredOfferingCourses.length - 1
+                              : current - 1,
+                          );
+                        } else if (
+                          e.key === "Enter" &&
+                          offeringCourseSearch.trim()
+                        ) {
+                          e.preventDefault();
+                          const course =
+                            filteredOfferingCourses[
+                              activeOfferingCourseIndex
+                            ];
+                          if (course && activeOfferingCourseIndex >= 0) {
+                            selectOfferingCourse(course);
+                          }
+                        } else if (e.key === "Escape") {
+                          setOfferingCourseSearch("");
+                          setActiveOfferingCourseIndex(-1);
+                        }
+                      }}
+                      autoComplete="off"
+                    />
+                    {selectedOfferingCourse && (
+                      <div className="d-flex align-items-center gap-2 rounded border border-primary-subtle bg-primary-subtle px-3 py-2 mb-2">
+                        <span
+                          className="badge rounded-pill text-bg-primary"
+                          aria-hidden="true"
+                        >
+                          ✓
+                        </span>
+                        <span className="small text-primary-emphasis">
+                          <span className="fw-semibold">Selected:</span>{" "}
+                          {selectedOfferingCourse.code} —{" "}
+                          {selectedOfferingCourse.title}
+                        </span>
+                      </div>
+                    )}
+                    {offeringCourseSearch.trim() && (
+                      <div
+                        id="offering-course-results"
+                        className="dropdown-menu show w-100 p-1"
+                        role="listbox"
+                        aria-label="Matching courses"
+                        style={{
+                          maxHeight: "180px",
+                          overflowY: "auto",
+                          position: "absolute",
+                          zIndex: 1050,
+                        }}
+                      >
+                        {filteredOfferingCourses.map((course, index) => (
+                          <button
+                            key={course._id}
+                            type="button"
+                            id={`offering-course-option-${index}`}
+                            className={`dropdown-item rounded text-start ${
+                              index === activeOfferingCourseIndex
+                                ? "active"
+                                : ""
+                            }`}
+                            role="option"
+                            aria-selected={
+                              index === activeOfferingCourseIndex
+                            }
+                            onMouseDown={(e) => e.preventDefault()}
+                            onMouseEnter={() =>
+                              setActiveOfferingCourseIndex(index)
+                            }
+                            onClick={() => selectOfferingCourse(course)}
+                          >
+                            {course.code} — {course.title} ({course.credits}{" "}
+                            Credits)
+                          </button>
+                        ))}
+                        {!coursesLoading &&
+                          !coursesError &&
+                          filteredOfferingCourses.length === 0 && (
+                            <div className="list-group-item text-secondary">
+                              No matching courses
+                            </div>
+                          )}
+                      </div>
+                    )}
                     {coursesError && (
                       <div className="text-danger small mt-1" role="alert">
                         {coursesError}
+                      </div>
+                    )}
+                    {!offeringForm.courseId && courses.length === 0 && (
+                      <div className="form-text">
+                        {coursesLoading
+                          ? "Loading courses..."
+                          : coursesError
+                            ? ""
+                            : "No courses available"}
                       </div>
                     )}
                   </div>
@@ -1504,19 +1690,21 @@ export default function AdvisorDashboard({ user }) {
                         <option value="" disabled>
                           Select room
                         </option>
-                        {offeringForm.room &&
-                          !offeringOptions.rooms.includes(
-                            offeringForm.room,
-                          ) && (
-                            <option value={offeringForm.room}>
-                              {offeringForm.room}
+                        {roomOptions.map((room) => {
+                          const unavailable = unavailableRooms.has(
+                            String(room).trim().toLocaleLowerCase(),
+                          );
+                          return (
+                            <option
+                              key={room}
+                              value={room}
+                              disabled={unavailable}
+                            >
+                              {room}
+                              {unavailable ? " (Unavailable)" : ""}
                             </option>
-                          )}
-                        {offeringOptions.rooms.map((room) => (
-                          <option key={room} value={room}>
-                            {room}
-                          </option>
-                        ))}
+                          );
+                        })}
                       </select>
                     </div>
                     <div className="col-6 offering-field">
@@ -1537,19 +1725,21 @@ export default function AdvisorDashboard({ user }) {
                         <option value="" disabled>
                           Select instructor
                         </option>
-                        {offeringForm.instructor &&
-                          !offeringOptions.instructors.includes(
-                            offeringForm.instructor,
-                          ) && (
-                            <option value={offeringForm.instructor}>
-                              {offeringForm.instructor}
+                        {instructorOptions.map((instructor) => {
+                          const unavailable = unavailableInstructors.has(
+                            String(instructor).trim().toLocaleLowerCase(),
+                          );
+                          return (
+                            <option
+                              key={instructor}
+                              value={instructor}
+                              disabled={unavailable}
+                            >
+                              {instructor}
+                              {unavailable ? " (Unavailable)" : ""}
                             </option>
-                          )}
-                        {offeringOptions.instructors.map((instructor) => (
-                          <option key={instructor} value={instructor}>
-                            {instructor}
-                          </option>
-                        ))}
+                          );
+                        })}
                       </select>
                     </div>
                   </div>

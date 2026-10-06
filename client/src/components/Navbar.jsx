@@ -1,4 +1,3 @@
-import React from "react";
 // Import the logo asset at the top so Vite bundles it correctly
 import logoImg from "../assets/Stamford-International-University-feature-img_bg_removed.png.png";
 

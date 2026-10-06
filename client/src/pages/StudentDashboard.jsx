@@ -1,5 +1,5 @@
 import Schedule from "../components/Schedule";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import WithdrawalRequestModal from "../components/WithdrawalRequestModal";
 
@@ -173,7 +173,6 @@ export default function StudentDashboard({ user }) {
   const [courseRequestsError, setCourseRequestsError] = useState("");
   const [courseRequestMessage, setCourseRequestMessage] = useState("");
   const [requestingCourseId, setRequestingCourseId] = useState("");
-  const [requestingOfferingId, setRequestingOfferingId] = useState("");
 
   // Search state for unfinished courses
   const [searchTerm, setSearchTerm] = useState("");
@@ -183,7 +182,10 @@ export default function StudentDashboard({ user }) {
 
   const loadRegistrations = () =>
     apiFetch("/students/me/registrations")
-      .then(setRegistrations)
+      .then((nextRegistrations) => {
+        setRegistrations(nextRegistrations);
+        setRegistrationsError("");
+      })
       .catch((err) => setRegistrationsError(err.message));
 
   const loadEligibleCourses = (showLoading = false) => {
@@ -273,6 +275,13 @@ export default function StudentDashboard({ user }) {
       .finally(() => setCourseRequestsLoading(false));
   };
 
+  const refreshCourseData = () => {
+    loadRegistrations();
+    loadEligibleCourses();
+    loadOpenOfferings();
+    loadCourseRequests();
+  };
+
   useEffect(() => {
     loadRegistrations();
     apiFetch("/courses")
@@ -302,11 +311,18 @@ export default function StudentDashboard({ user }) {
       )
       .finally(() => setRecordsLoading(false));
 
-    const openOfferingsRefresh = window.setInterval(loadOpenOfferings, 30000);
-    const registrationsRefresh = window.setInterval(loadRegistrations, 30000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshCourseData();
+      }
+    };
+    const courseDataRefresh = window.setInterval(refreshCourseData, 30000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.clearInterval(openOfferingsRefresh);
-      window.clearInterval(registrationsRefresh);
+      window.clearInterval(courseDataRefresh);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 
@@ -333,24 +349,6 @@ export default function StudentDashboard({ user }) {
     }
   };
 
-  const handleRequestCourse = async (offeringId) => {
-    setCourseRequestMessage("");
-    setRequestingOfferingId(offeringId);
-    try {
-      await apiFetch("/registrations/request", {
-        method: "POST",
-        body: JSON.stringify({ offeringId }),
-      });
-      setCourseRequestMessage(
-        "Course request sent. Your advisor will review it.",
-      );
-      await Promise.all([loadRegistrations(), loadEligibleCourses(true)]);
-    } catch (err) {
-      setCourseRequestMessage(err.message || "Unable to request this course.");
-    } finally {
-      setRequestingOfferingId("");
-    }
-  };
   const handleCancelRequest = async (courseId) => {
     setCourseRequestMessage("");
     try {
@@ -403,32 +401,32 @@ export default function StudentDashboard({ user }) {
     (offering) => !offering.read,
   ).length;
 
-  const activeCourseRequestIds = new Set(
-    courseRequests
+  const registeredCourseIds = new Set(
+    registrations
       .filter(
-        (request) =>
-          request.term === NEXT_TERM &&
-          ["pending", "approved"].includes(request.status),
+        (registration) =>
+          registration.term === NEXT_TERM && registration.status === "registered",
       )
-      .map((request) => String(request.courseId?._id)),
+      .map((registration) =>
+        String(
+          registration.offeringId?.courseId?._id ||
+            registration.offeringId?.courseId,
+        ),
+      ),
   );
-  const termCourseRequests = courseRequests.filter(
-    (request) => request.term === NEXT_TERM,
+  const termCourseRequests = courseRequests.filter((request) => {
+    const courseId = String(request.courseId?._id || request.courseId);
+    return (
+      request.term === NEXT_TERM &&
+      (request.status !== "approved" || registeredCourseIds.has(courseId))
+    );
+  });
+  const activeCourseRequestIds = new Set(
+    termCourseRequests
+      .filter((request) => ["pending", "approved"].includes(request.status))
+      .map((request) => String(request.courseId?._id || request.courseId)),
   );
   const comingSemesterCoursesById = new Map();
-  courseRequests
-    .filter(
-      (request) => request.term === NEXT_TERM && request.status === "approved",
-    )
-    .forEach((request) => {
-      const course = request.courseId;
-      if (course?._id) {
-        comingSemesterCoursesById.set(String(course._id), {
-          course,
-          section: "",
-        });
-      }
-    });
   registrations
     .filter(
       (registration) =>
@@ -1218,7 +1216,7 @@ export default function StudentDashboard({ user }) {
                                         ) === courseId &&
                                         PASSING_GRADES.includes(record.grade),
                                     );
-                                    const request = courseRequests.find(
+                                    const request = termCourseRequests.find(
                                       (item) =>
                                         String(
                                           item.courseId?._id || item.courseId,

@@ -21,4 +21,7 @@ const offeringSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+offeringSchema.index({ term: 1, courseId: 1, section: 1 });
+offeringSchema.index({ term: 1, day: 1 });
+
 module.exports = mongoose.model("Offering", offeringSchema);

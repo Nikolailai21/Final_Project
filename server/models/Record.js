@@ -22,4 +22,6 @@ const recordSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+recordSchema.index({ studentId: 1, courseId: 1 });
+
 module.exports = mongoose.model("Record", recordSchema);

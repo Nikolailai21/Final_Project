@@ -17,21 +17,11 @@ body {
   background-color: #0f172a;
 }
 
-.brand-mark {
-  background-color: #2563eb;
-  letter-spacing: 0.08em;
-  font-size: 0.8rem;
-}
-
 .main-content {
   padding: 1.25rem;
 }
 
 .login-card {
-  max-width: 400px;
-}
-
-.advisor-student-select {
   max-width: 400px;
 }
 

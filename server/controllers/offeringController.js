@@ -6,7 +6,9 @@ const findResourceScheduleConflict = async (offering, excludeOfferingId) => {
   const existingOfferings = await Offering.find({
     term: offering.term,
     ...(excludeOfferingId ? { _id: { $ne: excludeOfferingId } } : {}),
-  }).populate("courseId");
+  })
+    .select("courseId day startTime endTime room instructor")
+    .populate("courseId", "code");
 
   const normalize = (value) => String(value || "").trim().toLowerCase();
   const overlaps = (existing) =>

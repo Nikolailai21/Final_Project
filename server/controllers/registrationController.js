@@ -18,23 +18,40 @@ exports.getEligibleCourses = async (req, res) => {
     const term =
         req.query.term || (req.user.role === "student" ? "2026-2" : "2026-1");
 
-    // 1. Fetch current offerings for the term
-    const offerings = await Offering.find({ term }).populate("courseId");
-
-    // 2. Fetch student's academic history (Records)
-    const records = await Record.find({ studentId }).populate("courseId");
-
-    // 3. Fetch active registrations for current term
-    const currentRegs = await Registration.find({
-      studentId,
-      term,
-      status: { $in: ["pending", "registered"] },
-    }).populate({
-      path: "offeringId",
-      populate: { path: "courseId" },
-    });
+    const [offerings, records, currentRegs] = await Promise.all([
+      Offering.find({ term }).populate("courseId"),
+      Record.find({ studentId }).populate("courseId"),
+      Registration.find({
+        studentId,
+        term,
+        status: { $in: ["pending", "registered"] },
+      }).populate({
+        path: "offeringId",
+        populate: { path: "courseId" },
+      }),
+    ]);
 
     const PASSING_GRADES = ["A", "B+", "B", "C+", "C", "D+", "D"];
+    const recordsByCourse = new Map();
+    for (const record of records) {
+      const courseId = String(record.courseId?._id || record.courseId);
+      if (!recordsByCourse.has(courseId)) recordsByCourse.set(courseId, []);
+      recordsByCourse.get(courseId).push(record);
+    }
+
+    const registrationsByCourse = new Map();
+    const registrationsByDay = new Map();
+    for (const registration of currentRegs) {
+      const courseId = registration.offeringId?.courseId?._id;
+      if (courseId && !registrationsByCourse.has(String(courseId))) {
+        registrationsByCourse.set(String(courseId), registration);
+      }
+      const day = registration.offeringId?.day?.trim().toLowerCase();
+      if (day) {
+        if (!registrationsByDay.has(day)) registrationsByDay.set(day, []);
+        registrationsByDay.get(day).push(registration);
+      }
+    }
 
     const evaluatedOfferings = offerings.map((offering) => {
       const course = offering.courseId;
@@ -43,9 +60,7 @@ exports.getEligibleCourses = async (req, res) => {
       let retakeRequired = false;
 
       // Check Rule 2 & 3: Academic History
-      const courseRecords = records.filter(
-          (r) => r.courseId._id.toString() === course._id.toString(),
-      );
+      const courseRecords = recordsByCourse.get(String(course._id)) || [];
       const passed = courseRecords.some((r) =>
           PASSING_GRADES.includes(r.grade),
       );
@@ -66,10 +81,8 @@ exports.getEligibleCourses = async (req, res) => {
         reason = "Retake required (Failed in previous term)";
       }
 
-      const activeCourseRegistration = currentRegs.find(
-          (registration) =>
-              String(registration.offeringId?.courseId?._id) ===
-              String(course._id),
+      const activeCourseRegistration = registrationsByCourse.get(
+        String(course._id),
       );
       if (activeCourseRegistration) {
         eligible = false;
@@ -91,7 +104,8 @@ exports.getEligibleCourses = async (req, res) => {
       }
 
       // Check Rule 4b: Time Clash
-      const scheduleConflict = currentRegs.find(
+      const offeringDay = offering.day?.trim().toLowerCase();
+      const scheduleConflict = (registrationsByDay.get(offeringDay) || []).find(
           (registration) =>
             registration.offeringId &&
             registration.offeringId._id.toString() !== offering._id.toString() &&

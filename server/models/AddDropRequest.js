@@ -37,4 +37,7 @@ const addDropRequestSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+addDropRequestSchema.index({ advisorId: 1, term: 1, status: 1 });
+addDropRequestSchema.index({ registrationId: 1, status: 1 });
+
 module.exports = mongoose.model("AddDropRequest", addDropRequestSchema);

@@ -24,4 +24,6 @@ const courseRequestSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+courseRequestSchema.index({ studentId: 1, term: 1, status: 1, courseId: 1 });
+
 module.exports = mongoose.model("CourseRequest", courseRequestSchema);

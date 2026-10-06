@@ -13,8 +13,49 @@ const {
   hasScheduleConflict,
 } = require("../utils/schedule");
 
+const removeOrphanedApprovedCourseRequests = async (studentId) => {
+  const approvedRequests = await CourseRequest.find({
+    studentId,
+    status: "approved",
+  }).select("_id courseId term");
+  if (approvedRequests.length === 0) return;
+
+  const registrations = await Registration.find({
+    studentId,
+    term: { $in: [...new Set(approvedRequests.map((request) => request.term))] },
+    status: "registered",
+  }).populate({
+    path: "offeringId",
+    select: "courseId",
+  });
+  const registeredCourses = new Set(
+    registrations
+      .filter((registration) => registration.offeringId?.courseId)
+      .map(
+        (registration) =>
+          `${registration.term}:${String(
+            registration.offeringId.courseId._id ||
+              registration.offeringId.courseId,
+          )}`,
+      ),
+  );
+  const orphanedRequestIds = approvedRequests
+    .filter(
+      (request) =>
+        !registeredCourses.has(
+          `${request.term}:${String(request.courseId)}`,
+        ),
+    )
+    .map((request) => request._id);
+
+  if (orphanedRequestIds.length > 0) {
+    await CourseRequest.deleteMany({ _id: { $in: orphanedRequestIds } });
+  }
+};
+
 exports.getMyCourseRequests = async (req, res) => {
   try {
+    await removeOrphanedApprovedCourseRequests(req.user.id);
     const requests = await CourseRequest.find({ studentId: req.user.id })
         .sort({ createdAt: -1 })
         .populate("courseId");
@@ -269,6 +310,7 @@ exports.getStudentCourseRequests = async (req, res) => {
       });
     }
 
+    await removeOrphanedApprovedCourseRequests(req.params.studentId);
     const requests = await CourseRequest.find({
       studentId: req.params.studentId,
     })
