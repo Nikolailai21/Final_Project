@@ -63,12 +63,23 @@ export default function AdvisorDashboard({ user }) {
   const [studentsLoaded, setStudentsLoaded] = useState(false);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
   const [studentRecord, setStudentRecord] = useState(null);
   const [studentRegistrations, setStudentRegistrations] = useState([]);
   const [studentCourseRequests, setStudentCourseRequests] = useState([]);
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState("");
   const [registerSuccess, setRegisterSuccess] = useState("");
+  const [pendingRequestNotifications, setPendingRequestNotifications] =
+    useState([]);
+  const [pendingNotificationsError, setPendingNotificationsError] =
+    useState("");
+  const [showRequestNotifications, setShowRequestNotifications] =
+    useState(false);
+  const [openRequestNotificationMenuKey, setOpenRequestNotificationMenuKey] =
+    useState("");
+  const [reviewingAddDropRequestId, setReviewingAddDropRequestId] =
+    useState("");
   const occupiedSections = new Set(
     offerings
       .filter(
@@ -82,6 +93,20 @@ export default function AdvisorDashboard({ user }) {
   const sectionOptions = offeringOptions.sections.filter(
     (section) => !occupiedSections.has(Number(section)),
   );
+  const normalizedStudentSearch = studentSearch.trim().toLocaleLowerCase();
+  const filteredStudents = students.filter((student) =>
+    [student.name, student.studentId, student.email].some((value) =>
+      String(value || "")
+        .toLocaleLowerCase()
+        .includes(normalizedStudentSearch),
+    ),
+  );
+  const selectedStudent = students.find(
+    (student) => student._id === selectedStudentId,
+  );
+  const unreadRequestCount = pendingRequestNotifications.filter(
+    (notification) => !notification.read,
+  ).length;
 
   const loadOfferings = useCallback(() => {
     setOfferingLoading(true);
@@ -91,10 +116,31 @@ export default function AdvisorDashboard({ user }) {
       .finally(() => setOfferingLoading(false));
   }, []);
 
+  const loadPendingRequestNotifications = useCallback(async () => {
+    try {
+      const notifications = await apiFetch("/course-requests/advisor/pending");
+      setPendingRequestNotifications(notifications);
+      setPendingNotificationsError("");
+    } catch (err) {
+      setPendingNotificationsError(
+        err.message || "Unable to load pending course request notifications.",
+      );
+    }
+  }, []);
+
   // Load the active term's offerings on startup.
   useEffect(() => {
     loadOfferings();
   }, [loadOfferings]);
+
+  useEffect(() => {
+    loadPendingRequestNotifications();
+    const intervalId = window.setInterval(
+      loadPendingRequestNotifications,
+      30000,
+    );
+    return () => window.clearInterval(intervalId);
+  }, [loadPendingRequestNotifications]);
 
   const loadCourses = async () => {
     if (coursesLoaded || coursesLoading) return;
@@ -227,8 +273,95 @@ export default function AdvisorDashboard({ user }) {
     }
   };
 
+  const handleOpenRequestNotification = async (notification) => {
+    setActiveTab("register");
+    setStudentSearch("");
+    await handleSelectStudent(String(notification.studentId));
+  };
+
+  const handleToggleRequestRead = async (notification) => {
+    const nextReadState = !notification.read;
+    setPendingRequestNotifications((current) =>
+      current.map((item) =>
+        item.id === notification.id &&
+        item.requestType === notification.requestType
+          ? { ...item, read: nextReadState }
+          : item,
+      ),
+    );
+    try {
+      await apiFetch(
+        `/course-requests/advisor/notifications/${notification.requestType}/${notification.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ read: nextReadState }),
+        },
+      );
+    } catch (err) {
+      setPendingNotificationsError(
+        err.message || "Unable to update notification read status.",
+      );
+      await loadPendingRequestNotifications();
+    }
+  };
+
+  const handleDismissRequestNotification = async (notification) => {
+    try {
+      await apiFetch(
+        `/course-requests/advisor/notifications/${notification.requestType}/${notification.id}`,
+        { method: "DELETE" },
+      );
+      setPendingRequestNotifications((current) =>
+        current.filter(
+          (item) =>
+            item.id !== notification.id ||
+            item.requestType !== notification.requestType,
+        ),
+      );
+      setPendingNotificationsError("");
+      return true;
+    } catch (err) {
+      setPendingNotificationsError(
+        err.message || "Unable to delete notification.",
+      );
+      await loadPendingRequestNotifications();
+      return false;
+    }
+  };
+
+  const handleReviewAddDropRequest = async (notification, decision) => {
+    setReviewingAddDropRequestId(String(notification.id));
+    setPendingNotificationsError("");
+    try {
+      await apiFetch(`/add-drop-requests/${notification.id}/review`, {
+        method: "PATCH",
+        body: JSON.stringify({ decision }),
+      });
+      await Promise.all([
+        loadPendingRequestNotifications(),
+        loadOfferings(),
+        selectedStudentId === String(notification.studentId)
+          ? handleSelectStudent(selectedStudentId)
+          : Promise.resolve(),
+      ]);
+      setRegisterSuccess(
+        decision === "approved"
+          ? notification.addDropType === "change_section"
+            ? "Section change approved."
+            : "Course drop approved."
+          : "Add/drop request rejected.",
+      );
+    } catch (err) {
+      setPendingNotificationsError(
+        err.message || "Unable to review the add/drop request.",
+      );
+    } finally {
+      setReviewingAddDropRequestId("");
+    }
+  };
+
   const handleRemoveStudentCourse = async (registrationId) => {
-    if (!window.confirm("Remove this course from student's registration?"))
+    if (!window.confirm("Remove this course from the student's schedule?"))
       return;
     setRegisterError("");
     setRegisterSuccess("");
@@ -236,7 +369,7 @@ export default function AdvisorDashboard({ user }) {
       await apiFetch(`/registrations/${registrationId}`, {
         method: "DELETE",
       });
-      setRegisterSuccess("Course removed from student registration.");
+      setRegisterSuccess("Course removed from the student's schedule.");
       handleSelectStudent(selectedStudentId);
       loadOfferings();
     } catch (err) {
@@ -253,6 +386,7 @@ export default function AdvisorDashboard({ user }) {
       });
       setRegisterSuccess("Course request approved and student registered.");
       await handleSelectStudent(selectedStudentId);
+      await loadPendingRequestNotifications();
       loadOfferings();
     } catch (err) {
       setRegisterError(err.message || "Failed to approve course request.");
@@ -268,31 +402,12 @@ export default function AdvisorDashboard({ user }) {
         body: JSON.stringify({ status: decision }),
       });
       await handleSelectStudent(selectedStudentId);
-      setRegisterSuccess(
-        decision === "approved"
-          ? "Unfinished course request approved."
-          : "Unfinished course request rejected.",
-      );
+      await loadPendingRequestNotifications();
+      if (decision === "rejected") {
+        setRegisterSuccess("Unfinished course request rejected.");
+      }
     } catch (err) {
       setRegisterError(err.message || "Failed to review course request.");
-    }
-  };
-
-  const handleRemoveApproved = async (requestId) => {
-    if (
-      !window.confirm(
-        "Are you sure you want to revoke this approval? This will remove the course from the student's schedule.",
-      )
-    )
-      return;
-    setRegisterError("");
-    setRegisterSuccess("");
-    try {
-      await apiFetch(`/course-requests/${requestId}`, { method: "DELETE" });
-      await handleSelectStudent(selectedStudentId);
-      setRegisterSuccess("Approved course revoked and removed from schedule.");
-    } catch (err) {
-      setRegisterError(err.message || "Failed to remove approved request.");
     }
   };
 
@@ -309,51 +424,279 @@ export default function AdvisorDashboard({ user }) {
               Academic Advisor Portal
             </div>
             <h1 className="fs-3 fw-bold text-dark mb-1">
-              Welcome, Advisor {user.name}! 🎓
+              Welcome, Advisor {user.name}!
             </h1>
             <p className="text-muted mb-0 small">
-              Department of Computer Science & IT • Managing Term 2026-2
+              Department of Computer Science & IT
             </p>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="btn-group bg-light p-1 rounded-3 border" role="group">
-            <button
-              onClick={() => setActiveTab("offerings")}
-              className={`btn btn-sm fw-semibold px-3 py-2 rounded-2 transition-all ${
-                activeTab === "offerings"
-                  ? "text-white shadow-sm"
-                  : "btn-light text-secondary border-0"
-              }`}
-              style={
-                activeTab === "offerings"
-                  ? { backgroundColor: "#0094DA", borderColor: "#0094DA" }
-                  : {}
-              }
+          <div className="d-flex align-items-center gap-2">
+            <div
+              className="btn-group bg-light p-1 rounded-3 border"
+              role="group"
             >
-              Course Offerings & Add/Drop
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("register");
-                loadStudents();
-                if (selectedStudentId) {
-                  handleSelectStudent(selectedStudentId);
+              <button
+                onClick={() => setActiveTab("offerings")}
+                className={`btn btn-sm fw-semibold px-3 py-2 rounded-2 transition-all ${
+                  activeTab === "offerings"
+                    ? "text-white shadow-sm"
+                    : "btn-light text-secondary border-0"
+                }`}
+                style={
+                  activeTab === "offerings"
+                    ? { backgroundColor: "#0094DA", borderColor: "#0094DA" }
+                    : {}
                 }
-              }}
-              className={`btn btn-sm fw-semibold px-3 py-2 rounded-2 transition-all ${
-                activeTab === "register"
-                  ? "text-white shadow-sm"
-                  : "btn-light text-secondary border-0"
-              }`}
-              style={
-                activeTab === "register"
-                  ? { backgroundColor: "#0094DA", borderColor: "#0094DA" }
-                  : {}
-              }
-            >
-              Register Student
-            </button>
+              >
+                Course Offerings & Add/Drop
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab("register");
+                  loadStudents();
+                  if (selectedStudentId) {
+                    handleSelectStudent(selectedStudentId);
+                  }
+                }}
+                className={`btn btn-sm fw-semibold px-3 py-2 rounded-2 transition-all ${
+                  activeTab === "register"
+                    ? "text-white shadow-sm"
+                    : "btn-light text-secondary border-0"
+                }`}
+                style={
+                  activeTab === "register"
+                    ? { backgroundColor: "#0094DA", borderColor: "#0094DA" }
+                    : {}
+                }
+              >
+                Register Student
+              </button>
+            </div>
+            <div className="position-relative">
+              <button
+                type="button"
+                className={`btn btn-sm position-relative ${
+                  showRequestNotifications
+                    ? "btn-primary"
+                    : "btn-light border text-secondary"
+                }`}
+                aria-label={`Course request notifications${
+                  unreadRequestCount ? `, ${unreadRequestCount} unread` : ""
+                }`}
+                aria-expanded={showRequestNotifications}
+                onClick={() => {
+                  const nextOpen = !showRequestNotifications;
+                  setShowRequestNotifications(nextOpen);
+                  if (nextOpen) loadPendingRequestNotifications();
+                }}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M8 16a2 2 0 0 0 1.985-1.75h-3.97A2 2 0 0 0 8 16m.104-14.995a1 1 0 0 0-.208 0A5 5 0 0 0 3 6c0 1.098-.179 2.346-.468 3.327-.149.505-.338.99-.595 1.375-.246.368-.59.7-1.037.83V12h14.2v-.468c-.446-.13-.79-.462-1.036-.83-.257-.385-.446-.87-.595-1.375C13.18 8.346 13 7.098 13 6a5 5 0 0 0-4.896-4.995" />
+                </svg>
+                {unreadRequestCount > 0 && (
+                  <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                    {unreadRequestCount > 99 ? "99+" : unreadRequestCount}
+                  </span>
+                )}
+              </button>
+              {showRequestNotifications && (
+                <div className="card shadow border-0 position-absolute end-0 mt-2 p-3 advisor-request-notification-menu">
+                  <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    <strong className="small">Course Requests</strong>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={loadPendingRequestNotifications}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  {pendingNotificationsError ? (
+                    <p className="small text-danger mb-0" role="alert">
+                      {pendingNotificationsError}
+                    </p>
+                  ) : pendingRequestNotifications.length === 0 ? (
+                    <p className="small text-secondary mb-0">
+                      No pending course requests.
+                    </p>
+                  ) : (
+                    <div className="d-flex flex-column gap-2 advisor-request-notification-list">
+                      {pendingRequestNotifications.map((notification) => {
+                        const notificationMenuKey = `${notification.requestType}-${notification.id}`;
+                        return (
+                          <div
+                            key={notificationMenuKey}
+                            className={`course-notification-item advisor-notification-item border rounded p-2 ${
+                              notification.read
+                                ? "bg-white"
+                                : "bg-light is-unread"
+                            }`}
+                          >
+                            {!notification.read && (
+                              <span
+                                className="course-notification-unread-dot"
+                                aria-label="Unread notification"
+                                title="Unread"
+                              />
+                            )}
+                            <div className="course-notification-heading">
+                              <button
+                                type="button"
+                                className="advisor-notification-link"
+                                onClick={() => {
+                                  if (!notification.read) {
+                                    handleToggleRequestRead(notification);
+                                  }
+                                  setOpenRequestNotificationMenuKey("");
+                                  setShowRequestNotifications(false);
+                                  handleOpenRequestNotification(notification);
+                                }}
+                              >
+                                <span className="d-block fw-semibold small text-dark">
+                                  {notification.studentName} (
+                                  {notification.studentNumber || "Student"})
+                                </span>
+                                <span className="d-block small text-secondary">
+                                  {notification.courseCode} —{" "}
+                                  {notification.courseTitle}
+                                </span>
+                                {notification.requestType === "add_drop" && (
+                                  <span className="d-block small text-secondary mt-1">
+                                    {notification.addDropType ===
+                                    "change_section"
+                                      ? `Change section ${notification.currentSection} → ${notification.targetSection} (${notification.targetSchedule})`
+                                      : "Drop this course"}
+                                  </span>
+                                )}
+                              </button>
+                              <div className="position-relative">
+                                <button
+                                  type="button"
+                                  className="course-notification-menu-button"
+                                  aria-label={`Notification options for ${notification.studentName} ${notification.courseCode}`}
+                                  aria-expanded={
+                                    openRequestNotificationMenuKey ===
+                                    notificationMenuKey
+                                  }
+                                  onClick={() =>
+                                    setOpenRequestNotificationMenuKey(
+                                      (currentKey) =>
+                                        currentKey === notificationMenuKey
+                                          ? ""
+                                          : notificationMenuKey,
+                                    )
+                                  }
+                                >
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 16 16"
+                                    fill="currentColor"
+                                    aria-hidden="true"
+                                  >
+                                    <circle cx="3" cy="8" r="1.5" />
+                                    <circle cx="8" cy="8" r="1.5" />
+                                    <circle cx="13" cy="8" r="1.5" />
+                                  </svg>
+                                </button>
+                                {openRequestNotificationMenuKey ===
+                                  notificationMenuKey && (
+                                  <div
+                                    className="course-notification-action-menu"
+                                    role="group"
+                                    aria-label="Notification actions"
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        await handleToggleRequestRead(
+                                          notification,
+                                        );
+                                        setOpenRequestNotificationMenuKey("");
+                                      }}
+                                    >
+                                      Mark as{" "}
+                                      {notification.read ? "unread" : "read"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="course-notification-delete-action"
+                                      onClick={async () => {
+                                        const dismissed =
+                                          await handleDismissRequestNotification(
+                                            notification,
+                                          );
+                                        if (dismissed) {
+                                          setOpenRequestNotificationMenuKey("");
+                                        }
+                                      }}
+                                    >
+                                      Delete notification
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {notification.requestType === "add_drop" && (
+                              <>
+                                <p className="small text-secondary mb-2 mt-2">
+                                  {notification.message}
+                                </p>
+                                <div className="d-flex justify-content-end gap-2">
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger"
+                                    disabled={
+                                      reviewingAddDropRequestId ===
+                                      String(notification.id)
+                                    }
+                                    onClick={() =>
+                                      handleReviewAddDropRequest(
+                                        notification,
+                                        "rejected",
+                                      )
+                                    }
+                                  >
+                                    Reject
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-success"
+                                    disabled={
+                                      reviewingAddDropRequestId ===
+                                      String(notification.id)
+                                    }
+                                    onClick={() =>
+                                      handleReviewAddDropRequest(
+                                        notification,
+                                        "approved",
+                                      )
+                                    }
+                                  >
+                                    {reviewingAddDropRequestId ===
+                                    String(notification.id)
+                                      ? "Reviewing..."
+                                      : "Approve"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -364,12 +707,8 @@ export default function AdvisorDashboard({ user }) {
           <div className="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 border-bottom pb-3 mb-3">
             <div>
               <h2 className="fs-5 fw-bold text-dark mb-1">
-                Course Offerings (Term 2026-2)
+                Course Offerings (Term 2/2026)
               </h2>
-              <p className="text-muted small mb-0">
-                Open sections, edit schedules, track live seat counts, and
-                control Add/Drop windows
-              </p>
             </div>
             <button
               onClick={async () => {
@@ -429,7 +768,7 @@ export default function AdvisorDashboard({ user }) {
                     <th className="py-3 text-center">
                       Live Seats (Taken / Total)
                     </th>
-                    <th className="py-3 text-center">Add/Drop Window</th>
+                    <th className="py-3 text-center">Add/Drop</th>
                     <th className="py-3 text-end px-3">Actions</th>
                   </tr>
                 </thead>
@@ -479,7 +818,7 @@ export default function AdvisorDashboard({ user }) {
                                 : "btn-outline-secondary"
                             }`}
                           >
-                            {off.addDropOpen ? "● Window Open" : "Closed"}
+                            {off.addDropOpen ? "● Open" : "Closed"}
                           </button>
                         </td>
                         <td className="py-3 text-end px-3">
@@ -541,23 +880,72 @@ export default function AdvisorDashboard({ user }) {
                 courses
               </p>
 
-              <select
-                className="form-select shadow-none fw-semibold mb-3"
-                value={selectedStudentId}
-                disabled={studentsLoading}
-                onChange={(e) => handleSelectStudent(e.target.value)}
-              >
-                <option value="">
-                  {studentsLoading
+              <input
+                type="search"
+                className="form-control shadow-none"
+                placeholder={
+                  studentsLoading
                     ? "Loading students..."
-                    : "-- Choose Student --"}
-                </option>
-                {students.map((st) => (
-                  <option key={st._id} value={st._id}>
-                    {st.name} ({st.studentId || "STU"}) — {st.email}
-                  </option>
-                ))}
-              </select>
+                    : "Search by name, student ID, or email..."
+                }
+                aria-label="Search students by name, student ID, or email"
+                value={studentSearch}
+                onChange={(event) => {
+                  setStudentSearch(event.target.value);
+                  setRegisterError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || !studentSearch.trim()) return;
+                  event.preventDefault();
+                  if (filteredStudents.length === 0) {
+                    setRegisterError("No assigned students match your search.");
+                    return;
+                  }
+                  const student = filteredStudents[0];
+                  setStudentSearch("");
+                  handleSelectStudent(student._id);
+                }}
+                disabled={studentsLoading}
+              />
+
+              {studentSearch.trim() && (
+                <div className="list-group mt-2">
+                  {filteredStudents.length > 0 ? (
+                    filteredStudents.slice(0, 8).map((student) => (
+                      <button
+                        key={student._id}
+                        type="button"
+                        className="list-group-item list-group-item-action text-start"
+                        onClick={() => {
+                          setStudentSearch("");
+                          handleSelectStudent(student._id);
+                        }}
+                      >
+                        <span className="d-block fw-semibold">
+                          {student.name} ({student.studentId || "STU"})
+                        </span>
+                        <span className="small text-secondary">
+                          {student.email}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="list-group-item small text-secondary">
+                      No assigned students match your search.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!studentSearch.trim() && selectedStudent && (
+                <div className="form-control mt-2 bg-light">
+                  <span className="fw-semibold">{selectedStudent.name}</span>{" "}
+                  <span className="text-secondary">
+                    ({selectedStudent.studentId || "STU"}) —{" "}
+                    {selectedStudent.email}
+                  </span>
+                </div>
+              )}
 
               {registerError && (
                 <div
@@ -652,7 +1040,7 @@ export default function AdvisorDashboard({ user }) {
                 <div className="d-flex justify-content-between align-items-center mb-3 border-bottom pb-3">
                   <div>
                     <h3 className="fs-6 fw-bold text-dark mb-0">
-                      Registered Courses (Term 2026-2)
+                      Registered Courses (Term 2/2026)
                     </h3>
                     <p className="text-muted small mb-0">
                       Current student registrations for this semester
@@ -687,7 +1075,7 @@ export default function AdvisorDashboard({ user }) {
                             colSpan="5"
                             className="text-muted text-center py-4 small"
                           >
-                            No active course registrations for Term 2026-2.
+                            No active course registrations for Term 2/2026.
                           </td>
                         </tr>
                       ) : (
@@ -736,7 +1124,7 @@ export default function AdvisorDashboard({ user }) {
                                   className="btn btn-outline-danger btn-sm fw-medium px-2 py-1"
                                   style={{ fontSize: "11px" }}
                                 >
-                                  Remove
+                                  Remove from schedule
                                 </button>
                               )}
                             </td>
@@ -754,7 +1142,7 @@ export default function AdvisorDashboard({ user }) {
                 <div className="d-flex justify-content-between align-items-center mb-3 border-bottom pb-3">
                   <div>
                     <h3 className="fs-6 fw-bold text-dark mb-0">
-                      Course Requests (Term 2026-2)
+                      Course Requests (Term 2/2026)
                     </h3>
                     <p className="text-muted small mb-0">
                       Student submitted requests pending advisor review
@@ -868,17 +1256,6 @@ export default function AdvisorDashboard({ user }) {
                                     </button>
                                   </div>
                                 )}
-                                {request.status === "approved" && (
-                                  <button
-                                    onClick={() =>
-                                      handleRemoveApproved(request._id)
-                                    }
-                                    className="btn btn-danger btn-sm fw-medium px-2 py-1"
-                                    style={{ fontSize: "11px" }}
-                                  >
-                                    Revoke
-                                  </button>
-                                )}
                               </td>
                             </tr>
                           );
@@ -907,7 +1284,7 @@ export default function AdvisorDashboard({ user }) {
                   <h5 className="modal-title fw-bold text-dark mb-0">
                     {editingOffering
                       ? "Edit Course Offering"
-                      : "Open Course Offering (Term 2026-2)"}
+                      : "Open Course Offering (Term 2/2026)"}
                   </h5>
                   <span className="text-muted small">
                     Manage course schedules and seat availability

@@ -52,10 +52,311 @@ body {
   margin-inline: auto;
 }
 
+.course-finder-empty {
+  padding: 1rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+}
+
+.course-notification-anchor {
+  flex: 0 0 auto;
+}
+
+.course-notification-menu {
+  z-index: 1050;
+  width: min(22rem, calc(100vw - 3rem));
+  max-height: 22rem;
+  overflow: visible;
+}
+
+.advisor-request-notification-menu {
+  z-index: 1050;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(24rem, 70vh);
+  overflow: visible;
+}
+
+.advisor-request-notification-list {
+  overflow: visible;
+}
+
+.course-notification-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1e293b;
+  text-align: left;
+}
+
+.course-notification-link:hover,
+.course-notification-link:focus-visible {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.advisor-notification-item {
+  padding-right: 0.35rem !important;
+}
+
+.advisor-notification-item.is-unread {
+  padding-left: 0.75rem !important;
+}
+
+.advisor-notification-link {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.advisor-notification-link:hover .text-dark,
+.advisor-notification-link:focus-visible .text-dark {
+  color: #1d4ed8 !important;
+  text-decoration: underline;
+}
+
+.course-notification-item.is-unread {
+  position: relative;
+  padding-left: 0.75rem;
+}
+
+.course-notification-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.course-notification-details {
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+}
+
+.course-notification-menu-button {
+  display: inline-flex;
+  width: 1.6rem;
+  height: 1.6rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #64748b;
+}
+
+.course-notification-menu-button:hover,
+.course-notification-menu-button:focus-visible {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.course-notification-action-menu {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: calc(100% + 0.25rem);
+  min-width: 9rem;
+  padding: 0.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #fff;
+  box-shadow: 0 0.25rem 0.75rem rgb(15 23 42 / 14%);
+}
+
+.advisor-notification-item .course-notification-action-menu {
+  top: calc(100% + 0.25rem);
+  bottom: auto;
+}
+
+.course-notification-menu .course-notification-action-menu {
+  top: calc(100% + 0.25rem);
+  bottom: auto;
+}
+
+.course-notification-action-menu button {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: #334155;
+  font-size: 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.course-notification-action-menu button:hover,
+.course-notification-action-menu button:focus-visible {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.course-notification-action-menu .course-notification-delete-action {
+  color: #b91c1c;
+}
+
+.course-notification-action-menu .course-notification-delete-action:hover,
+.course-notification-action-menu .course-notification-delete-action:focus-visible {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.course-notification-unread-dot {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.15rem;
+  display: block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #2563eb;
+}
+
+.curriculum-card {
+  min-width: 0;
+}
+
+.curriculum-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.curriculum-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.curriculum-check,
+.curriculum-available-key {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.curriculum-check-empty {
+  border: 1px solid #cbd5e1;
+  background: transparent;
+}
+
+.curriculum-available-key {
+  width: 0.55rem;
+  height: 0.55rem;
+  background: #2563eb;
+}
+
+.curriculum-groups {
+  border-top: 1px solid #e2e8f0;
+}
+
+.curriculum-group {
+  padding: 0.85rem 0 1rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.curriculum-group-heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.45rem;
+  background: #dbeafe;
+  text-align: left;
+  cursor: pointer;
+}
+
+.curriculum-group-heading[aria-expanded="true"] {
+  border-radius: 0.45rem 0.45rem 0 0;
+}
+
+.curriculum-group-title {
+  color: #1e3a8a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.curriculum-group-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.curriculum-group-toggle-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #93c5fd;
+  border-radius: 50%;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 1.1rem;
+  line-height: 1;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  transform: translateY(-0.5px);
+}
+
+.curriculum-group-heading:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.curriculum-table-wrap {
+  border: 1px solid #cbd5e1;
+  border-top: 0;
+}
+
+.curriculum-table {
+  font-size: 0.72rem;
+}
+
+.curriculum-table thead th {
+  padding: 0.45rem 0.55rem;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.curriculum-table tbody th,
+.curriculum-table tbody td {
+  padding: 0.45rem 0.55rem;
+}
+
+.curriculum-course-status {
+  min-width: 8.5rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .dashboard-stack {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+@media (max-width: 575.98px) {
+  .curriculum-course-status {
+    min-width: 7.5rem;
+  }
 }
 
 .dashboard-eyebrow {

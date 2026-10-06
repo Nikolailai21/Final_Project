@@ -1,4 +1,6 @@
 const Offering = require("../models/Offering");
+const StudentOfferingNotification = require("../models/StudentOfferingNotification");
+const mongoose = require("mongoose");
 
 const findResourceScheduleConflict = async (offering, excludeOfferingId) => {
   const existingOfferings = await Offering.find({
@@ -83,6 +85,97 @@ exports.getOfferings = async (req, res) => {
     const term = req.query.term || "2026-1";
     const offerings = await Offering.find({ term }).populate("courseId");
     res.json(offerings);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getOpenOfferings = async (req, res) => {
+  try {
+    const term = req.query.term || "2026-2";
+    if (typeof term !== "string" || !/^\d{4}-\d+$/.test(term)) {
+      return res.status(400).json({ message: "A valid term is required" });
+    }
+
+    const offerings = await Offering.find({
+      term,
+      addDropOpen: true,
+      $expr: { $lt: ["$seatsTaken", "$seats"] },
+    })
+      .populate("courseId")
+      .sort({ section: 1 });
+    const notifications = await StudentOfferingNotification.find({
+      studentId: req.user.id,
+      offeringId: { $in: offerings.map((offering) => offering._id) },
+      dismissed: { $ne: true },
+    }).select("offeringId read");
+    const readByOfferingId = new Map(
+      notifications.map((notification) => [
+        String(notification.offeringId),
+        notification.read,
+      ]),
+    );
+    res.json(
+      offerings.map((offering) => ({
+        ...offering.toObject(),
+        read: readByOfferingId.get(String(offering._id)) ?? false,
+      })),
+    );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.setStudentOfferingNotificationReadState = async (req, res) => {
+  try {
+    const { offeringId } = req.params;
+    const { read } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(offeringId)) {
+      return res.status(400).json({ message: "A valid course section is required" });
+    }
+    if (typeof read !== "boolean") {
+      return res.status(400).json({ message: "Read status must be true or false" });
+    }
+
+    const openOffering = await Offering.exists({
+      _id: offeringId,
+      addDropOpen: true,
+      $expr: { $lt: ["$seatsTaken", "$seats"] },
+    });
+    if (!openOffering) {
+      return res.status(404).json({
+        message: "This course section is no longer open for requests",
+      });
+    }
+
+    const notification = await StudentOfferingNotification.findOneAndUpdate(
+      { studentId: req.user.id, offeringId },
+      { $set: { read } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
+    res.json({ offeringId, read: notification.read });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.dismissStudentOfferingNotification = async (req, res) => {
+  try {
+    const { offeringId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(offeringId)) {
+      return res.status(400).json({ message: "A valid course section is required" });
+    }
+    const offeringExists = await Offering.exists({ _id: offeringId });
+    if (!offeringExists) {
+      return res.status(404).json({ message: "Course section not found" });
+    }
+
+    await StudentOfferingNotification.findOneAndUpdate(
+      { studentId: req.user.id, offeringId },
+      { $set: { dismissed: true } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
+    res.json({ offeringId, dismissed: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

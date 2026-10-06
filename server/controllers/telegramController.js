@@ -1,6 +1,12 @@
 const mongoose = require("mongoose");
 const Registration = require("../models/Registration");
+const Offering = require("../models/Offering");
+const AddDropRequest = require("../models/AddDropRequest");
 const User = require("../models/User");
+const {
+  describeScheduleConflict,
+  findScheduleConflict,
+} = require("../utils/schedule");
 
 const telegramApi = (method) =>
   `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`;
@@ -56,10 +62,20 @@ exports.sendAddDropNotification = async (req, res) => {
   const token = getBotToken(res);
   if (!token) return;
 
+  let addDropRequestId;
   try {
-    const { registrationId, message } = req.body;
+    const { registrationId, requestType, targetOfferingId, message } = req.body;
     if (!mongoose.Types.ObjectId.isValid(registrationId)) {
       return res.status(400).json({ message: "A valid registration is required" });
+    }
+    if (!["drop", "change_section"].includes(requestType)) {
+      return res.status(400).json({ message: "Select a valid course request type" });
+    }
+    if (
+      requestType === "change_section" &&
+      !mongoose.Types.ObjectId.isValid(targetOfferingId)
+    ) {
+      return res.status(400).json({ message: "Select a valid target section" });
     }
     if (
       typeof message !== "string" ||
@@ -103,22 +119,82 @@ exports.sendAddDropNotification = async (req, res) => {
     const offering = registration.offeringId;
     if (!offering.addDropOpen) {
       return res.status(400).json({
-        message: "Withdrawal requests are closed for this course",
+        message: "Course change requests are closed for this section",
+      });
+    }
+    const activeAddDropRequest = await AddDropRequest.exists({
+      registrationId: registration._id,
+      status: { $in: ["pending", "processing"] },
+    });
+    if (activeAddDropRequest) {
+      return res.status(409).json({
+        message: "An add/drop request for this course is already awaiting review",
       });
     }
 
     const course = offering.courseId;
+    let targetOffering = null;
+    if (requestType === "change_section") {
+      targetOffering = await Offering.findOne({
+        _id: targetOfferingId,
+        courseId: course._id,
+        term: registration.term,
+        addDropOpen: true,
+        $expr: { $lt: ["$seatsTaken", "$seats"] },
+      }).populate("courseId");
+      if (!targetOffering || String(targetOffering._id) === String(offering._id)) {
+        return res.status(400).json({
+          message: "Select another open section of this course with available seats",
+        });
+      }
+
+      const scheduleConflict = await findScheduleConflict({
+        studentId: student._id,
+        term: registration.term,
+        offering: targetOffering,
+        excludeRegistrationId: registration._id,
+      });
+      if (scheduleConflict) {
+        return res.status(409).json({
+          message: describeScheduleConflict(scheduleConflict),
+        });
+      }
+    } else if (targetOfferingId) {
+      return res.status(400).json({
+        message: "A target section is only allowed for a section-change request",
+      });
+    }
+
     const text = [
-      "🗿COURSE WITHDRAWAL REQUEST",
+      requestType === "drop"
+        ? "📤 COURSE DROP REQUEST"
+        : "🔄 COURSE SECTION CHANGE REQUEST",
       `Student: ${student.name} (${student.studentId || "ID not set"})`,
       `Term: ${registration.term}`,
       `Course: ${course.code} — ${course.title}`,
-      `Section: ${offering.section}`,
-      `Schedule: ${offering.day} ${offering.startTime}-${offering.endTime}`,
+      `Current section: ${offering.section} (${offering.day} ${offering.startTime}-${offering.endTime})`,
+      ...(targetOffering
+        ? [
+            `Preferred section: ${targetOffering.section} (${targetOffering.day} ${targetOffering.startTime}-${targetOffering.endTime})`,
+            `Room: ${targetOffering.room}`,
+            `Instructor: ${targetOffering.instructor}`,
+          ]
+        : []),
       "",
       "Student message:",
       message.trim(),
     ].join("\n");
+
+    const addDropRequest = await AddDropRequest.create({
+      studentId: student._id,
+      advisorId: advisor._id,
+      registrationId: registration._id,
+      term: registration.term,
+      requestType,
+      ...(targetOffering ? { targetOfferingId: targetOffering._id } : {}),
+      message: message.trim(),
+    });
+    addDropRequestId = addDropRequest._id;
 
     const response = await fetch(telegramApi("sendMessage"), {
       method: "POST",
@@ -130,6 +206,11 @@ exports.sendAddDropNotification = async (req, res) => {
     });
     const result = await response.json();
     if (!response.ok || !result.ok) {
+      await AddDropRequest.deleteOne({
+        _id: addDropRequest._id,
+        status: "pending",
+      });
+      addDropRequestId = null;
       console.error(
         "Telegram sendMessage failed:",
         result.description || response.status,
@@ -147,13 +228,20 @@ exports.sendAddDropNotification = async (req, res) => {
     }
 
     res.json({
-      message: "Withdrawal request sent to your advisor on Telegram",
+      message: "Course request sent to your advisor on Telegram",
       advisorName: advisor.name,
+      requestId: addDropRequest._id,
     });
   } catch (err) {
-    console.error("Failed to send Telegram withdrawal request:", err.message);
+    if (addDropRequestId) {
+      await AddDropRequest.deleteOne({
+        _id: addDropRequestId,
+        status: "pending",
+      });
+    }
+    console.error("Failed to send Telegram add/drop request:", err.message);
     res.status(500).json({
-      message: "Unable to send the Telegram withdrawal request",
+      message: "Unable to send the Telegram add/drop request",
     });
   }
 };

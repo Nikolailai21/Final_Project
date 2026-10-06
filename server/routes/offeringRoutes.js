@@ -5,6 +5,24 @@ const offeringOptionController = require("../controllers/offeringOptionControlle
 const { verifyToken, authorizeRoles } = require("../middleware/auth");
 
 router.get("/options", verifyToken, offeringOptionController.getOfferingOptions);
+router.get(
+  "/open",
+  verifyToken,
+  authorizeRoles("student"),
+  offeringController.getOpenOfferings,
+);
+router.patch(
+  "/open/:offeringId/read-state",
+  verifyToken,
+  authorizeRoles("student"),
+  offeringController.setStudentOfferingNotificationReadState,
+);
+router.delete(
+  "/open/:offeringId/notification",
+  verifyToken,
+  authorizeRoles("student"),
+  offeringController.dismissStudentOfferingNotification,
+);
 router.get("/", verifyToken, offeringController.getOfferings);
 router.post(
   "/",

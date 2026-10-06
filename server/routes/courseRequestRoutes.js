@@ -10,6 +10,24 @@ router.get(
     courseRequestController.getMyCourseRequests,
 );
 router.get(
+    "/advisor/pending",
+    verifyToken,
+    authorizeRoles("advisor"),
+    courseRequestController.getAdvisorPendingRequests,
+);
+router.patch(
+    "/advisor/notifications/:requestType/:requestId",
+    verifyToken,
+    authorizeRoles("advisor"),
+    courseRequestController.setAdvisorRequestReadState,
+);
+router.delete(
+    "/advisor/notifications/:requestType/:requestId",
+    verifyToken,
+    authorizeRoles("advisor"),
+    courseRequestController.dismissAdvisorRequestNotification,
+);
+router.get(
     "/student/:studentId",
     verifyToken,
     authorizeRoles("advisor"),

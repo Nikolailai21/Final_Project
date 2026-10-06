@@ -3,6 +3,8 @@ const Registration = require("../models/Registration");
 const mongoose = require("mongoose");
 const Course = require("../models/Course");
 const CourseRequest = require("../models/CourseRequest");
+const AdvisorNotification = require("../models/AdvisorNotification");
+const AddDropRequest = require("../models/AddDropRequest");
 const Record = require("../models/Record");
 const User = require("../models/User");
 const {
@@ -17,6 +19,234 @@ exports.getMyCourseRequests = async (req, res) => {
         .sort({ createdAt: -1 })
         .populate("courseId");
     res.json(requests);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getAdvisorPendingRequests = async (req, res) => {
+  try {
+    const students = await User.find({
+      advisorId: req.user.id,
+      role: "student",
+      active: true,
+    }).select("_id name studentId");
+    const studentIds = students.map((student) => student._id);
+    if (studentIds.length === 0) {
+      return res.json([]);
+    }
+
+    const [courseRequests, registrations, addDropRequests] = await Promise.all([
+      CourseRequest.find({
+        studentId: { $in: studentIds },
+        term: "2026-2",
+        status: "pending",
+      })
+        .sort({ createdAt: -1 })
+        .populate("courseId")
+        .populate("studentId", "name studentId"),
+      Registration.find({
+        studentId: { $in: studentIds },
+        term: "2026-2",
+        status: "pending",
+      })
+        .sort({ createdAt: -1 })
+        .populate({
+          path: "offeringId",
+          populate: { path: "courseId" },
+        })
+        .populate("studentId", "name studentId"),
+      AddDropRequest.find({
+        advisorId: req.user.id,
+        term: "2026-2",
+        status: "pending",
+      })
+        .sort({ createdAt: -1 })
+        .populate("studentId", "name studentId")
+        .populate({
+          path: "registrationId",
+          populate: { path: "offeringId", populate: { path: "courseId" } },
+        })
+        .populate({
+          path: "targetOfferingId",
+          populate: { path: "courseId" },
+        }),
+    ]);
+
+    const notifications = [
+      ...courseRequests.map((request) => ({
+        id: request._id,
+        requestType: "course",
+        studentId: request.studentId?._id,
+        studentName: request.studentId?.name,
+        studentNumber: request.studentId?.studentId,
+        courseCode: request.courseId?.code,
+        courseTitle: request.courseId?.title,
+        term: request.term,
+        createdAt: request.createdAt,
+      })),
+      ...registrations.map((registration) => ({
+        id: registration._id,
+        requestType: "section",
+        studentId: registration.studentId?._id,
+        studentName: registration.studentId?.name,
+        studentNumber: registration.studentId?.studentId,
+        courseCode: registration.offeringId?.courseId?.code,
+        courseTitle: registration.offeringId?.courseId?.title,
+        term: registration.term,
+        createdAt: registration.createdAt,
+      })),
+      ...addDropRequests.map((request) => ({
+        id: request._id,
+        requestType: "add_drop",
+        studentId: request.studentId?._id,
+        studentName: request.studentId?.name,
+        studentNumber: request.studentId?.studentId,
+        courseCode:
+          request.registrationId?.offeringId?.courseId?.code || "Course",
+        courseTitle:
+          request.registrationId?.offeringId?.courseId?.title || "",
+        term: request.term,
+        addDropType: request.requestType,
+        message: request.message,
+        currentSection: request.registrationId?.offeringId?.section,
+        targetSection: request.targetOfferingId?.section,
+        targetSchedule: request.targetOfferingId
+          ? `${request.targetOfferingId.day} ${request.targetOfferingId.startTime}-${request.targetOfferingId.endTime}`
+          : "",
+        createdAt: request.createdAt,
+      })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    const notificationStates = await AdvisorNotification.find({
+      advisorId: req.user.id,
+      requestId: { $in: notifications.map((notification) => notification.id) },
+    }).select("requestType requestId read dismissed");
+    const notificationStateByKey = new Map(
+      notificationStates.map((state) => [
+        `${state.requestType}:${state.requestId}`,
+        { read: state.read, dismissed: state.dismissed },
+      ]),
+    );
+
+    res.json(
+      notifications
+        .filter(
+          (notification) =>
+            !notificationStateByKey.get(
+              `${notification.requestType}:${notification.id}`,
+            )?.dismissed,
+        )
+        .map((notification) => ({
+          ...notification,
+          read:
+            notificationStateByKey.get(
+              `${notification.requestType}:${notification.id}`,
+            )?.read || false,
+        })),
+    );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.setAdvisorRequestReadState = async (req, res) => {
+  try {
+    const { requestType, requestId } = req.params;
+    const { read } = req.body;
+    if (!["course", "section", "add_drop"].includes(requestType)) {
+      return res.status(400).json({ message: "Invalid request type" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(requestId)) {
+      return res.status(400).json({ message: "A valid request is required" });
+    }
+    if (typeof read !== "boolean") {
+      return res.status(400).json({ message: "Read status must be true or false" });
+    }
+
+    const requestModel =
+      requestType === "course"
+        ? CourseRequest
+        : requestType === "add_drop"
+          ? AddDropRequest
+          : Registration;
+    const requestQuery =
+      requestType === "add_drop"
+        ? { _id: requestId, advisorId: req.user.id, status: "pending" }
+        : { _id: requestId, status: "pending" };
+    const request = await requestModel.findOne(requestQuery);
+    if (!request) {
+      return res.status(404).json({ message: "Pending course request not found" });
+    }
+
+    const assignedStudent = await User.exists({
+      _id: request.studentId,
+      advisorId: req.user.id,
+      role: "student",
+    });
+    if (!assignedStudent) {
+      return res.status(403).json({
+        message: "You can only update notifications for your assigned students",
+      });
+    }
+
+    const notification = await AdvisorNotification.findOneAndUpdate(
+      {
+        advisorId: req.user.id,
+        requestType,
+        requestId,
+      },
+      { $set: { read } },
+      { new: true, upsert: true, runValidators: true },
+    );
+    res.json({ read: notification.read });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.dismissAdvisorRequestNotification = async (req, res) => {
+  try {
+    const { requestType, requestId } = req.params;
+    if (!["course", "section", "add_drop"].includes(requestType)) {
+      return res.status(400).json({ message: "Invalid request type" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(requestId)) {
+      return res.status(400).json({ message: "A valid request is required" });
+    }
+
+    const requestModel =
+      requestType === "course"
+        ? CourseRequest
+        : requestType === "add_drop"
+          ? AddDropRequest
+          : Registration;
+    const requestQuery =
+      requestType === "add_drop"
+        ? { _id: requestId, advisorId: req.user.id, status: "pending" }
+        : { _id: requestId, status: "pending" };
+    const request = await requestModel.findOne(requestQuery);
+    if (!request) {
+      return res.status(404).json({ message: "Pending course request not found" });
+    }
+
+    const assignedStudent = await User.exists({
+      _id: request.studentId,
+      advisorId: req.user.id,
+      role: "student",
+    });
+    if (!assignedStudent) {
+      return res.status(403).json({
+        message: "You can only update notifications for your assigned students",
+      });
+    }
+
+    await AdvisorNotification.findOneAndUpdate(
+      { advisorId: req.user.id, requestType, requestId },
+      { $set: { dismissed: true } },
+      { new: true, upsert: true, runValidators: true },
+    );
+    res.json({ requestId, dismissed: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -113,6 +343,19 @@ exports.createCourseRequest = async (req, res) => {
       return res.status(404).json({ message: "Course not found" });
     }
 
+    const openOffering = await Offering.exists({
+      courseId,
+      term,
+      addDropOpen: true,
+      $expr: { $lt: ["$seatsTaken", "$seats"] },
+    });
+    if (!openOffering) {
+      return res.status(409).json({
+        message:
+          "This course is unavailable for student requests. The advisor must open a section with available seats first.",
+      });
+    }
+
     const existingRecord = await Record.exists({
       studentId: req.user.id,
       courseId,
@@ -191,12 +434,15 @@ exports.reviewCourseRequest = async (req, res) => {
       const offering = await Offering.findOne({
         courseId: request.courseId,
         term: request.term,
+        addDropOpen: true,
+        $expr: { $lt: ["$seatsTaken", "$seats"] },
       })
           .sort({ section: 1 })
           .populate("courseId");
       if (!offering) {
         return res.status(409).json({
-          message: "No scheduled offering exists for this course and term.",
+          message:
+            "No open section with available seats exists for this course and term.",
         });
       }
 
@@ -214,6 +460,7 @@ exports.reviewCourseRequest = async (req, res) => {
       const reservedOffering = await Offering.findOneAndUpdate(
           {
             _id: offering._id,
+            addDropOpen: true,
             $expr: { $lt: ["$seatsTaken", "$seats"] },
           },
           { $inc: { seatsTaken: 1 } },

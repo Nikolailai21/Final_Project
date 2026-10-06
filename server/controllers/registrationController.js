@@ -79,6 +79,11 @@ exports.getEligibleCourses = async (req, res) => {
                 : "Already registered this term";
       }
 
+      if (!offering.addDropOpen) {
+        eligible = false;
+        reason = "Unavailable — advisor has not opened this course";
+      }
+
       // Check Rule 4a: Seat Availability
       if (offering.seatsTaken >= offering.seats) {
         eligible = false;
@@ -255,6 +260,7 @@ exports.approveCourseRequest = async (req, res) => {
     const offering = await Offering.findOneAndUpdate(
         {
           _id: registration.offeringId._id,
+          addDropOpen: true,
           $expr: {$lt: ["$seatsTaken", "$seats"] },
         },
         { $inc: { seatsTaken: 1 } },
@@ -263,7 +269,10 @@ exports.approveCourseRequest = async (req, res) => {
     if (!offering) {
       return res
           .status(400)
-          .json({ message: "This course section is full or unavailable" });
+          .json({
+            message:
+              "This course section is closed or full and cannot be approved.",
+          });
     }
 
     try {
